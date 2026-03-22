@@ -1,0 +1,16 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      FLASK_ENV: development
+      PORT: 5000
+      FIREBASE_PROJECT_ID: brain-sync-app
+      GOOGLE_CLOUD_PROJECT: brain-sync-app
+      GOOGLE_APPLICATION_CREDENTIALS: /app/secrets/service-account.json
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./:/app
+    command: python app.py

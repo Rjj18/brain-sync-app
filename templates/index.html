@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Brain-Sync</title>
+    <style>
+      :root {
+        --bg: #f3f5f9;
+        --surface: #ffffff;
+        --surface-2: #eef2ff;
+        --text: #1f2937;
+        --muted: #6b7280;
+        --border: #dbe3ef;
+        --accent: #4f46e5;
+        --accent-hover: #4338ca;
+        --danger: #dc2626;
+        --success: #16a34a;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: linear-gradient(180deg, #f8fafc 0%, var(--bg) 100%);
+        color: var(--text);
+        font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+      }
+
+      .dashboard {
+        width: min(500px, 90vw);
+      }
+
+      .title {
+        margin: 0 0 8px;
+        font-size: 1.5rem;
+        font-weight: 700;
+        letter-spacing: 0.2px;
+      }
+
+      .subtitle {
+        margin: 0 0 20px;
+        color: var(--muted);
+        font-size: 0.95rem;
+      }
+
+      .empty-state {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 20px;
+        text-align: center;
+        color: var(--muted);
+        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+      }
+
+      .card-scene {
+        perspective: 1200px;
+      }
+
+      .flashcard {
+        position: relative;
+        width: 100%;
+        min-height: 380px;
+        transform-style: preserve-3d;
+        transition: transform 650ms cubic-bezier(0.2, 0.8, 0.2, 1);
+        cursor: pointer;
+      }
+
+      .flashcard.flipped {
+        transform: rotateY(180deg);
+      }
+
+      .face {
+        position: absolute;
+        inset: 0;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 22px;
+        backface-visibility: hidden;
+        box-shadow: 0 12px 32px rgba(15, 23, 42, 0.1);
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .face.back {
+        transform: rotateY(180deg);
+        background: linear-gradient(180deg, var(--surface) 0%, var(--surface-2) 100%);
+      }
+
+      .badge {
+        width: fit-content;
+        font-size: 0.78rem;
+        color: var(--accent);
+        background: #eef2ff;
+        border: 1px solid #c7d2fe;
+        border-radius: 999px;
+        padding: 4px 10px;
+        font-weight: 600;
+      }
+
+      .label {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.82rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+
+      .content {
+        margin: 0;
+        line-height: 1.55;
+        font-size: 1rem;
+      }
+
+      .quote {
+        margin-top: auto;
+        font-style: italic;
+        color: #334155;
+        background: rgba(255, 255, 255, 0.8);
+        border-left: 3px solid #a5b4fc;
+        padding: 10px 12px;
+        border-radius: 8px;
+      }
+
+      .hint {
+        margin: 14px 0 0;
+        text-align: center;
+        color: var(--muted);
+        font-size: 0.88rem;
+      }
+
+      .actions {
+        margin-top: 18px;
+        display: none;
+        gap: 10px;
+      }
+
+      .actions.show {
+        display: flex;
+      }
+
+      .btn {
+        flex: 1;
+        border: 1px solid transparent;
+        border-radius: 10px;
+        padding: 10px 12px;
+        font-weight: 600;
+        font-size: 0.88rem;
+        cursor: pointer;
+        transition: all 150ms ease;
+      }
+
+      .btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+
+      .btn-hard {
+        background: #fee2e2;
+        color: #991b1b;
+        border-color: #fecaca;
+      }
+
+      .btn-good {
+        background: #e0e7ff;
+        color: #3730a3;
+        border-color: #c7d2fe;
+      }
+
+      .btn-easy {
+        background: #dcfce7;
+        color: #166534;
+        border-color: #bbf7d0;
+      }
+
+      .btn:hover:not(:disabled) {
+        transform: translateY(-1px);
+        filter: brightness(0.98);
+      }
+
+      .status {
+        min-height: 22px;
+        margin-top: 12px;
+        font-size: 0.9rem;
+        font-weight: 500;
+      }
+
+      .status.ok {
+        color: var(--success);
+      }
+
+      .status.error {
+        color: var(--danger);
+      }
+
+      @media (max-width: 768px) {
+        body {
+          padding: 16px;
+        }
+
+        .flashcard {
+          min-height: 360px;
+        }
+
+        .actions {
+          flex-direction: column;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="dashboard">
+      <h1 class="title">Brain-Sync</h1>
+      <p class="subtitle">Dashboard de revisão ativa</p>
+
+      {% if insight %}
+        <section class="card-scene">
+          <article class="flashcard" id="flashcard" role="button" tabindex="0" aria-label="Virar flashcard">
+            <div class="face front">
+              <span class="badge" id="chapterBadge">Capítulo {{ insight.chapter }}</span>
+              <p class="label">Pergunta</p>
+              <p class="content" id="questionText">{{ insight.active_recall.pergunta }}</p>
+            </div>
+
+            <div class="face back">
+              <span class="badge">Resposta e Reflexão</span>
+              <p class="label">Resposta</p>
+              <p class="content" id="answerText">{{ insight.active_recall.resposta }}</p>
+
+              <p class="label">Reflexão</p>
+              <p class="content" id="reflectionText">{{ insight.reflection }}</p>
+
+              <p class="quote" id="quoteText">{{ insight.text }}</p>
+            </div>
+          </article>
+        </section>
+
+        <p class="hint" id="hint">Clique no card para virar</p>
+
+        <section class="actions" id="actions">
+          <button class="btn btn-hard" data-feedback="1">Difícil (1 dia)</button>
+          <button class="btn btn-good" data-feedback="2">Bom (4 dias)</button>
+          <button class="btn btn-easy" data-feedback="3">Fácil (7 dias)</button>
+        </section>
+
+        <p class="status" id="status"></p>
+      {% else %}
+        <div class="empty-state">Nenhum insight disponível para revisão.</div>
+      {% endif %}
+    </main>
+
+    <script>
+      (function () {
+        const flashcard = document.getElementById("flashcard");
+        const actions = document.getElementById("actions");
+        const status = document.getElementById("status");
+        const hint = document.getElementById("hint");
+        const chapterBadge = document.getElementById("chapterBadge");
+        const questionText = document.getElementById("questionText");
+        const answerText = document.getElementById("answerText");
+        const reflectionText = document.getElementById("reflectionText");
+        const quoteText = document.getElementById("quoteText");
+        const cardScene = document.querySelector(".card-scene");
+
+        if (!flashcard || !actions) {
+          return;
+        }
+
+        let currentInsightId = "{{ insight.id if insight else '' }}";
+
+        function reviewUrl() {
+          return "/review/" + currentInsightId;
+        }
+
+        function setButtonsDisabled(disabled) {
+          actions.querySelectorAll("button").forEach(function (btn) {
+            btn.disabled = disabled;
+          });
+        }
+
+        function resetCardUi() {
+          flashcard.classList.remove("flipped");
+          actions.classList.remove("show");
+          setButtonsDisabled(false);
+          if (hint) {
+            hint.textContent = "Clique no card para virar";
+          }
+        }
+
+        function renderInsight(insight) {
+          currentInsightId = insight.id;
+          chapterBadge.textContent = "Capítulo " + (insight.chapter || "-");
+          questionText.textContent = (insight.active_recall && insight.active_recall.pergunta) || "";
+          answerText.textContent = (insight.active_recall && insight.active_recall.resposta) || "";
+          reflectionText.textContent = insight.reflection || "";
+          quoteText.textContent = insight.text || "";
+          status.className = "status";
+          status.textContent = "";
+          if (cardScene) {
+            cardScene.style.display = "block";
+          }
+          flashcard.style.display = "block";
+          actions.style.display = "";
+          resetCardUi();
+        }
+
+        function showEmptyState() {
+          if (cardScene) {
+            cardScene.style.display = "none";
+          }
+          actions.classList.remove("show");
+          actions.style.display = "none";
+          if (hint) {
+            hint.textContent = "";
+          }
+          status.className = "status ok";
+          status.textContent = "Sem novos cards no momento. Volte mais tarde.";
+        }
+
+        async function loadNextInsight() {
+          const response = await fetch("/api/next-insight", { method: "GET" });
+          const data = await response.json();
+
+          if (!response.ok) {
+            throw new Error(data.error || "Falha ao carregar próximo card.");
+          }
+
+          if (!data.insight) {
+            showEmptyState();
+            return;
+          }
+
+          renderInsight(data.insight);
+        }
+
+        function flipCard() {
+          const alreadyFlipped = flashcard.classList.contains("flipped");
+          if (alreadyFlipped) {
+            return;
+          }
+          flashcard.classList.add("flipped");
+          actions.classList.add("show");
+          if (hint) {
+            hint.textContent = "Escolha a facilidade para agendar a próxima revisão";
+          }
+        }
+
+        flashcard.addEventListener("click", flipCard);
+        flashcard.addEventListener("keydown", function (event) {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            flipCard();
+          }
+        });
+
+        actions.querySelectorAll("button").forEach(function (button) {
+          button.addEventListener("click", async function () {
+            const feedback = Number(button.dataset.feedback);
+
+            setButtonsDisabled(true);
+            status.className = "status";
+            status.textContent = "Salvando feedback...";
+
+            try {
+              const response = await fetch(reviewUrl(), {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  feedback: feedback,
+                }),
+              });
+
+              const data = await response.json();
+
+              if (!response.ok) {
+                throw new Error(data.error || "Falha ao salvar feedback.");
+              }
+
+              status.classList.add("ok");
+              status.textContent = "Feedback salvo. Próxima revisão agendada para " + new Date(data.next_review).toLocaleString("pt-BR") + ".";
+              await loadNextInsight();
+            } catch (error) {
+              status.classList.add("error");
+              status.textContent = error.message || "Erro inesperado ao enviar feedback.";
+              setButtonsDisabled(false);
+            }
+          });
+        });
+      })();
+    </script>
+  </body>
+</html>
