@@ -9,6 +9,8 @@ services:
       FIREBASE_PROJECT_ID: brain-sync-app
       GOOGLE_CLOUD_PROJECT: brain-sync-app
       GOOGLE_APPLICATION_CREDENTIALS: /app/secrets/service-account.json
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-1.5-flash}
     ports:
       - "5000:5000"
     volumes:

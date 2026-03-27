@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Brain-Sync | Estudo</title>
+    <style>
+      :root {
+        --bg: #f5f8ff;
+        --surface: #ffffff;
+        --text: #0f172a;
+        --muted: #475569;
+        --border: #dbe3ef;
+        --accent: #2563eb;
+        --accent-2: #1d4ed8;
+        --ok: #166534;
+        --error: #991b1b;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        padding: 20px;
+        background: linear-gradient(180deg, #eaf2ff 0%, var(--bg) 100%);
+        color: var(--text);
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        display: grid;
+        place-items: center;
+      }
+
+      .wrapper {
+        width: min(820px, 100%);
+      }
+
+      .nav {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 10px;
+      }
+
+      .nav a {
+        text-decoration: none;
+        color: #334155;
+        font-weight: 600;
+        font-size: 0.9rem;
+      }
+
+      h1 {
+        margin: 0;
+      }
+
+      .subtitle {
+        margin: 8px 0 16px;
+        color: var(--muted);
+      }
+
+      .toolbar {
+        display: grid;
+        grid-template-columns: 1fr 170px 170px;
+        gap: 10px;
+      }
+
+      .topics-wrap {
+        margin-top: 12px;
+      }
+
+      .topics-title {
+        margin: 0 0 8px;
+        font-size: 0.86rem;
+        color: var(--muted);
+        font-weight: 700;
+      }
+
+      .topics-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .topic-chip {
+        border: 1px solid #bfdbfe;
+        background: #eff6ff;
+        color: #1d4ed8;
+        border-radius: 999px;
+        padding: 6px 10px;
+        font-size: 0.82rem;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      .topic-chip:hover {
+        background: #dbeafe;
+      }
+
+      input,
+      select,
+      button {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px 12px;
+        font: inherit;
+      }
+
+      button {
+        background: var(--accent);
+        color: #fff;
+        border-color: transparent;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      button:hover {
+        background: var(--accent-2);
+      }
+
+      .flashcard {
+        margin-top: 16px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        box-shadow: 0 12px 32px rgba(15, 23, 42, 0.09);
+        padding: 18px;
+      }
+
+      .meta {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        color: var(--muted);
+        font-size: 0.86rem;
+      }
+
+      .label {
+        margin: 12px 0 4px;
+        font-size: 0.78rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .text {
+        margin: 0;
+        line-height: 1.6;
+      }
+
+      .answer {
+        margin-top: 10px;
+        padding: 10px;
+        border-radius: 10px;
+        border: 1px dashed #bfdbfe;
+        background: #eff6ff;
+        display: none;
+      }
+
+      .answer.show {
+        display: block;
+      }
+
+      .actions {
+        margin-top: 14px;
+        display: flex;
+        gap: 10px;
+      }
+
+      .difficulty-actions {
+        margin-top: 10px;
+        display: flex;
+        gap: 10px;
+      }
+
+      .difficulty-btn {
+        flex: 1;
+        border-radius: 10px;
+        padding: 10px 12px;
+        font-weight: 700;
+        border: 1px solid transparent;
+        cursor: pointer;
+      }
+
+      .difficulty-btn.hard {
+        background: #fee2e2;
+        color: #991b1b;
+        border-color: #fecaca;
+      }
+
+      .difficulty-btn.good {
+        background: #e0e7ff;
+        color: #3730a3;
+        border-color: #c7d2fe;
+      }
+
+      .difficulty-btn.easy {
+        background: #dcfce7;
+        color: #166534;
+        border-color: #bbf7d0;
+      }
+
+      .ghost {
+        background: #e2e8f0;
+        color: #0f172a;
+      }
+
+      .status {
+        min-height: 24px;
+        margin-top: 10px;
+        font-weight: 600;
+      }
+
+      .status.ok {
+        color: var(--ok);
+      }
+
+      .status.error {
+        color: var(--error);
+      }
+
+      @media (max-width: 760px) {
+        .toolbar {
+          grid-template-columns: 1fr;
+        }
+
+        .actions {
+          flex-direction: column;
+        }
+
+        .difficulty-actions {
+          flex-direction: column;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="wrapper">
+      <nav class="nav" aria-label="Navegacao">
+        <a href="/">Inicio</a>
+        <a href="/upload-material">Upload</a>
+        <a href="/revisao-leituras">Revisao de Leitura</a>
+      </nav>
+
+      <h1>Estudo por Cards</h1>
+      <p class="subtitle">Estude por tema ou em modo shuffle e marque seu progresso.</p>
+
+      <section class="toolbar" aria-label="Filtros do estudo">
+        <input id="topicInput" type="text" value="{{ current_topic or '' }}" placeholder="Tema (obrigatorio no modo tema)" />
+        <select id="modeSelect">
+          <option value="topic" selected>Por tema</option>
+          <option value="shuffle">Shuffle</option>
+        </select>
+        <button id="loadBtn" type="button">Carregar card</button>
+      </section>
+
+      <section class="topics-wrap" aria-label="Temas disponiveis">
+        <p class="topics-title">Temas disponiveis</p>
+        <div class="topics-list" id="topicsList"></div>
+      </section>
+
+      <article class="flashcard" id="cardBox" style="display: none;">
+        <div class="meta">
+          <span id="topicBadge">Tema: -</span>
+          <span id="seenCount">Vezes visto: 0</span>
+        </div>
+
+        <p class="label">Pergunta</p>
+        <p class="text" id="questionText"></p>
+
+        <div class="answer" id="answerBox">
+          <p class="label">Resposta</p>
+          <p class="text" id="answerText"></p>
+        </div>
+
+        <div class="actions">
+          <button id="revealBtn" type="button" class="ghost">Mostrar resposta</button>
+          <button id="nextBtn" type="button">Marcar visto e proximo</button>
+          <button id="shuffleBtn" type="button" class="ghost">Shuffle agora</button>
+        </div>
+
+        <div class="difficulty-actions">
+          <button class="difficulty-btn hard" data-feedback="1" type="button">Dificil</button>
+          <button class="difficulty-btn good" data-feedback="2" type="button">Bom</button>
+          <button class="difficulty-btn easy" data-feedback="3" type="button">Facil</button>
+        </div>
+      </article>
+
+      <p class="status" id="status"></p>
+    </main>
+
+    <script>
+      (function () {
+        const topicInput = document.getElementById("topicInput");
+        const modeSelect = document.getElementById("modeSelect");
+        const loadBtn = document.getElementById("loadBtn");
+        const topicsList = document.getElementById("topicsList");
+        const revealBtn = document.getElementById("revealBtn");
+        const nextBtn = document.getElementById("nextBtn");
+        const shuffleBtn = document.getElementById("shuffleBtn");
+        const difficultyButtons = document.querySelectorAll(".difficulty-btn");
+        const cardBox = document.getElementById("cardBox");
+        const answerBox = document.getElementById("answerBox");
+        const topicBadge = document.getElementById("topicBadge");
+        const seenCount = document.getElementById("seenCount");
+        const questionText = document.getElementById("questionText");
+        const answerText = document.getElementById("answerText");
+        const status = document.getElementById("status");
+
+        let currentCardId = "";
+
+        async function loadTopics() {
+          if (!topicsList) {
+            return;
+          }
+
+          try {
+            const response = await fetch("/api/topics?kind=card");
+            const data = await response.json();
+            if (!response.ok) {
+              return;
+            }
+
+            topicsList.innerHTML = "";
+            (data.topics || []).forEach(function (topic) {
+              const chip = document.createElement("button");
+              chip.type = "button";
+              chip.className = "topic-chip";
+              chip.textContent = topic;
+              chip.addEventListener("click", async function () {
+                topicInput.value = topic;
+                modeSelect.value = "topic";
+                try {
+                  await loadCard();
+                } catch (error) {
+                  setStatus(error.message || "Erro ao carregar tema.", "error");
+                }
+              });
+              topicsList.appendChild(chip);
+            });
+          } catch (error) {
+            // Best effort: theme list is optional.
+          }
+        }
+
+        function normalizeTopic(value) {
+          return (value || "")
+            .trim()
+            .toLowerCase()
+            .replace(/\s+/g, "-")
+            .replace(/[^a-z0-9-]/g, "")
+            .replace(/-+/g, "-")
+            .replace(/^-|-$/g, "");
+        }
+
+        function setStatus(message, level) {
+          status.className = "status" + (level ? " " + level : "");
+          status.textContent = message || "";
+        }
+
+        function renderCard(card) {
+          currentCardId = card.id;
+          cardBox.style.display = "block";
+          answerBox.classList.remove("show");
+
+          topicBadge.textContent = "Tema: " + (card.topic || "-");
+          seenCount.textContent = "Vezes visto: " + (card.seen_count || 0);
+          questionText.textContent = ((card.active_recall || {}).pergunta) || "";
+          answerText.textContent = ((card.active_recall || {}).resposta) || "";
+        }
+
+        async function loadCard() {
+          const mode = modeSelect.value;
+          const topic = normalizeTopic(topicInput.value);
+
+          if (mode === "topic" && !topic) {
+            cardBox.style.display = "none";
+            setStatus("Informe um tema para usar o modo por tema.", "error");
+            return;
+          }
+
+          const params = new URLSearchParams({ mode: mode });
+          if (topic) {
+            params.set("topic", topic);
+          }
+
+          setStatus("Carregando card...");
+          const response = await fetch("/api/cards/study?" + params.toString());
+          const data = await response.json();
+
+          if (!response.ok) {
+            throw new Error(data.error || "Falha ao carregar card.");
+          }
+
+          if (!data.card) {
+            currentCardId = "";
+            cardBox.style.display = "none";
+            setStatus("Nenhum card disponivel para este filtro.", "ok");
+            return;
+          }
+
+          renderCard(data.card);
+          setStatus("Card carregado.", "ok");
+          window.history.replaceState({}, "", "/estudo?topic=" + encodeURIComponent(topic));
+        }
+
+        async function markSeen() {
+          if (!currentCardId) {
+            return;
+          }
+
+          await fetch("/api/insights/" + currentCardId + "/seen", {
+            method: "POST",
+          });
+        }
+
+        async function applyDifficulty(feedback) {
+          if (!currentCardId) {
+            return;
+          }
+
+          const response = await fetch("/review/" + currentCardId, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              feedback: feedback,
+            }),
+          });
+
+          const data = await response.json();
+          if (!response.ok) {
+            throw new Error(data.error || "Falha ao aplicar dificuldade.");
+          }
+
+          setStatus(
+            "Dificuldade registrada. Proxima revisao: " +
+              new Date(data.next_review).toLocaleString("pt-BR"),
+            "ok"
+          );
+        }
+
+        loadBtn.addEventListener("click", async function () {
+          try {
+            await loadCard();
+          } catch (error) {
+            setStatus(error.message || "Erro ao carregar card.", "error");
+          }
+        });
+
+        revealBtn.addEventListener("click", function () {
+          answerBox.classList.add("show");
+        });
+
+        nextBtn.addEventListener("click", async function () {
+          try {
+            await markSeen();
+            await loadCard();
+          } catch (error) {
+            setStatus(error.message || "Erro ao avancar card.", "error");
+          }
+        });
+
+        shuffleBtn.addEventListener("click", async function () {
+          modeSelect.value = "shuffle";
+          try {
+            await loadCard();
+          } catch (error) {
+            setStatus(error.message || "Erro no shuffle.", "error");
+          }
+        });
+
+        difficultyButtons.forEach(function (button) {
+          button.addEventListener("click", async function () {
+            const feedback = Number(button.dataset.feedback);
+            try {
+              await applyDifficulty(feedback);
+              await loadCard();
+            } catch (error) {
+              setStatus(error.message || "Erro ao aplicar dificuldade.", "error");
+            }
+          });
+        });
+
+        if (topicInput.value) {
+          loadBtn.click();
+        }
+
+        loadTopics();
+      })();
+    </script>
+  </body>
+</html>

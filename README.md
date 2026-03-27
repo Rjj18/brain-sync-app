@@ -12,6 +12,7 @@ O Brain-Sync foi criado para apoiar estudos com revisão espaçada, transformand
 - Python 3.12 + Flask
 - Firestore (Firebase Admin SDK)
 - Docker + Docker Compose
+- Gemini API (opcional para geracao automatica de card/trecho)
 
 ## Pré-requisitos
 - Docker e Docker Compose instalados
@@ -26,6 +27,23 @@ O Brain-Sync foi criado para apoiar estudos com revisão espaçada, transformand
 ```bash
 docker compose up --build -d
 ```
+
+## Ativar geracao com Gemini (opcional)
+Defina as variaveis de ambiente antes de subir o compose:
+
+```bash
+export GEMINI_API_KEY="sua-chave"
+export GEMINI_MODEL="gemini-1.5-flash"
+```
+
+No Windows PowerShell:
+
+```powershell
+$env:GEMINI_API_KEY="sua-chave"
+$env:GEMINI_MODEL="gemini-1.5-flash"
+```
+
+Sem chave, o app usa fallback local para geracao automatica.
 
 Acesse:
 - Home: http://localhost:5000/

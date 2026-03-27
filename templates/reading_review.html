@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Brain-Sync | Revisao de Leitura</title>
+    <style>
+      :root {
+        --bg: #f6f8fc;
+        --surface: #ffffff;
+        --text: #0f172a;
+        --muted: #475569;
+        --border: #dbe3ef;
+        --accent: #0ea5e9;
+        --accent-2: #0284c7;
+        --ok: #166534;
+        --error: #991b1b;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        padding: 20px;
+        background: linear-gradient(180deg, #eff6ff 0%, var(--bg) 100%);
+        color: var(--text);
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        display: grid;
+        place-items: center;
+      }
+
+      .wrapper {
+        width: min(820px, 100%);
+      }
+
+      .nav {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 10px;
+      }
+
+      .nav a {
+        text-decoration: none;
+        color: #334155;
+        font-weight: 600;
+        font-size: 0.9rem;
+      }
+
+      h1 {
+        margin: 0;
+      }
+
+      .subtitle {
+        margin: 8px 0 16px;
+        color: var(--muted);
+      }
+
+      .toolbar {
+        display: grid;
+        grid-template-columns: 1fr 170px 170px;
+        gap: 10px;
+      }
+
+      .topics-wrap {
+        margin-top: 12px;
+      }
+
+      .topics-title {
+        margin: 0 0 8px;
+        font-size: 0.86rem;
+        color: var(--muted);
+        font-weight: 700;
+      }
+
+      .topics-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .topic-chip {
+        border: 1px solid #bae6fd;
+        background: #ecfeff;
+        color: #0e7490;
+        border-radius: 999px;
+        padding: 6px 10px;
+        font-size: 0.82rem;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      .topic-chip:hover {
+        background: #cffafe;
+      }
+
+      input,
+      select,
+      button {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px 12px;
+        font: inherit;
+      }
+
+      button {
+        background: var(--accent);
+        color: #fff;
+        border-color: transparent;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      button:hover {
+        background: var(--accent-2);
+      }
+
+      .card {
+        margin-top: 16px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        box-shadow: 0 12px 32px rgba(15, 23, 42, 0.09);
+        padding: 18px;
+      }
+
+      .meta {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        color: var(--muted);
+        font-size: 0.86rem;
+      }
+
+      .title {
+        margin: 10px 0 8px;
+        font-size: 1.1rem;
+      }
+
+      .text {
+        margin: 0;
+        line-height: 1.6;
+        white-space: pre-wrap;
+      }
+
+      .actions {
+        margin-top: 14px;
+        display: flex;
+        gap: 10px;
+      }
+
+      .ghost {
+        background: #e2e8f0;
+        color: #0f172a;
+      }
+
+      .status {
+        min-height: 24px;
+        margin-top: 10px;
+        font-weight: 600;
+      }
+
+      .status.ok {
+        color: var(--ok);
+      }
+
+      .status.error {
+        color: var(--error);
+      }
+
+      @media (max-width: 760px) {
+        .toolbar {
+          grid-template-columns: 1fr;
+        }
+
+        .actions {
+          flex-direction: column;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="wrapper">
+      <nav class="nav" aria-label="Navegacao">
+        <a href="/">Inicio</a>
+        <a href="/upload-material">Upload</a>
+        <a href="/estudo">Estudo</a>
+      </nav>
+
+      <h1>Revisao de Leitura</h1>
+      <p class="subtitle">Revise trechos por tema ou em modo shuffle.</p>
+
+      <section class="toolbar" aria-label="Filtros da revisao">
+        <input id="topicInput" type="text" value="{{ current_topic or '' }}" placeholder="Tema (obrigatorio no modo tema)" />
+        <select id="modeSelect">
+          <option value="topic" selected>Por tema</option>
+          <option value="shuffle">Shuffle</option>
+        </select>
+        <button id="loadBtn" type="button">Carregar trecho</button>
+      </section>
+
+      <section class="topics-wrap" aria-label="Temas disponiveis">
+        <p class="topics-title">Temas disponiveis</p>
+        <div class="topics-list" id="topicsList"></div>
+      </section>
+
+      <article class="card" id="excerptCard" style="display: none;">
+        <div class="meta">
+          <span id="topicBadge">Tema: -</span>
+          <span id="seenCount">Vezes visto: 0</span>
+        </div>
+        <h2 class="title" id="sourceTitle">Fonte</h2>
+        <p class="text" id="excerptText"></p>
+        <div class="actions">
+          <button id="nextBtn" type="button">Marcar visto e proximo</button>
+          <button id="shuffleBtn" type="button" class="ghost">Shuffle agora</button>
+        </div>
+      </article>
+
+      <p class="status" id="status"></p>
+    </main>
+
+    <script>
+      (function () {
+        const topicInput = document.getElementById("topicInput");
+        const modeSelect = document.getElementById("modeSelect");
+        const loadBtn = document.getElementById("loadBtn");
+        const topicsList = document.getElementById("topicsList");
+        const nextBtn = document.getElementById("nextBtn");
+        const shuffleBtn = document.getElementById("shuffleBtn");
+        const excerptCard = document.getElementById("excerptCard");
+        const topicBadge = document.getElementById("topicBadge");
+        const seenCount = document.getElementById("seenCount");
+        const sourceTitle = document.getElementById("sourceTitle");
+        const excerptText = document.getElementById("excerptText");
+        const status = document.getElementById("status");
+
+        let currentExcerptId = "";
+
+        async function loadTopics() {
+          if (!topicsList) {
+            return;
+          }
+
+          try {
+            const response = await fetch("/api/topics?kind=reading_excerpt");
+            const data = await response.json();
+            if (!response.ok) {
+              return;
+            }
+
+            topicsList.innerHTML = "";
+            (data.topics || []).forEach(function (topic) {
+              const chip = document.createElement("button");
+              chip.type = "button";
+              chip.className = "topic-chip";
+              chip.textContent = topic;
+              chip.addEventListener("click", async function () {
+                topicInput.value = topic;
+                modeSelect.value = "topic";
+                try {
+                  await loadExcerpt();
+                } catch (error) {
+                  setStatus(error.message || "Erro ao carregar tema.", "error");
+                }
+              });
+              topicsList.appendChild(chip);
+            });
+          } catch (error) {
+            // Best effort: theme list is optional.
+          }
+        }
+
+        function normalizeTopic(value) {
+          return (value || "")
+            .trim()
+            .toLowerCase()
+            .replace(/\s+/g, "-")
+            .replace(/[^a-z0-9-]/g, "")
+            .replace(/-+/g, "-")
+            .replace(/^-|-$/g, "");
+        }
+
+        function setStatus(message, level) {
+          status.className = "status" + (level ? " " + level : "");
+          status.textContent = message || "";
+        }
+
+        function renderExcerpt(excerpt) {
+          currentExcerptId = excerpt.id;
+          excerptCard.style.display = "block";
+          topicBadge.textContent = "Tema: " + (excerpt.topic || "-");
+          seenCount.textContent = "Vezes visto: " + (excerpt.seen_count || 0);
+          sourceTitle.textContent = ((excerpt.source || {}).title) || "Fonte nao informada";
+          excerptText.textContent = ((excerpt.content || {}).text) || "";
+        }
+
+        async function loadExcerpt() {
+          const mode = modeSelect.value;
+          const topic = normalizeTopic(topicInput.value);
+
+          if (mode === "topic" && !topic) {
+            excerptCard.style.display = "none";
+            setStatus("Informe um tema para usar o modo por tema.", "error");
+            return;
+          }
+
+          const params = new URLSearchParams({ mode: mode });
+          if (topic) {
+            params.set("topic", topic);
+          }
+
+          setStatus("Carregando trecho...");
+          const response = await fetch("/api/readings/next?" + params.toString());
+          const data = await response.json();
+
+          if (!response.ok) {
+            throw new Error(data.error || "Falha ao carregar trecho.");
+          }
+
+          if (!data.excerpt) {
+            excerptCard.style.display = "none";
+            setStatus("Nenhum trecho disponivel para este filtro.", "ok");
+            return;
+          }
+
+          renderExcerpt(data.excerpt);
+          setStatus("Trecho carregado.", "ok");
+          window.history.replaceState({}, "", "/revisao-leituras?topic=" + encodeURIComponent(topic));
+        }
+
+        async function markSeen() {
+          if (!currentExcerptId) {
+            return;
+          }
+
+          await fetch("/api/insights/" + currentExcerptId + "/seen", {
+            method: "POST",
+          });
+        }
+
+        loadBtn.addEventListener("click", async function () {
+          try {
+            await loadExcerpt();
+          } catch (error) {
+            setStatus(error.message || "Erro ao carregar trecho.", "error");
+          }
+        });
+
+        nextBtn.addEventListener("click", async function () {
+          try {
+            await markSeen();
+            await loadExcerpt();
+          } catch (error) {
+            setStatus(error.message || "Erro ao avancar trecho.", "error");
+          }
+        });
+
+        shuffleBtn.addEventListener("click", async function () {
+          modeSelect.value = "shuffle";
+          try {
+            await loadExcerpt();
+          } catch (error) {
+            setStatus(error.message || "Erro no shuffle.", "error");
+          }
+        });
+
+        if (topicInput.value) {
+          loadBtn.click();
+        }
+
+        loadTopics();
+      })();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Brain-Sync | Inicio</title>
+    <style>
+      :root {
+        --bg-1: #f8fafc;
+        --bg-2: #e2e8f0;
+        --surface: #ffffff;
+        --text: #0f172a;
+        --muted: #475569;
+        --primary: #0ea5e9;
+        --primary-strong: #0369a1;
+        --border: #cbd5e1;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(circle at 20% 10%, #bae6fd 0%, transparent 30%),
+          radial-gradient(circle at 80% 80%, #bfdbfe 0%, transparent 28%),
+          linear-gradient(135deg, var(--bg-1) 0%, var(--bg-2) 100%);
+        display: grid;
+        place-items: center;
+        padding: 24px;
+      }
+
+      .container {
+        width: min(980px, 100%);
+      }
+
+      .header {
+        text-align: center;
+        margin-bottom: 26px;
+      }
+
+      .title {
+        margin: 0;
+        font-size: clamp(1.9rem, 4vw, 2.8rem);
+      }
+
+      .subtitle {
+        margin: 10px 0 0;
+        color: var(--muted);
+        font-size: 1rem;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      .card {
+        display: block;
+        text-decoration: none;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 20px;
+        color: inherit;
+        box-shadow: 0 14px 36px rgba(15, 23, 42, 0.08);
+        transform: translateY(0);
+        transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+      }
+
+      .card:hover {
+        transform: translateY(-4px);
+        border-color: #7dd3fc;
+        box-shadow: 0 18px 42px rgba(14, 165, 233, 0.2);
+      }
+
+      .icon {
+        font-size: 1.6rem;
+      }
+
+      .card h2 {
+        margin: 10px 0 8px;
+        font-size: 1.25rem;
+      }
+
+      .card p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+
+      .hint {
+        margin-top: 18px;
+        text-align: center;
+        color: var(--primary-strong);
+        font-weight: 600;
+      }
+
+      @media (max-width: 900px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="container">
+      <header class="header">
+        <h1 class="title">Brain-Sync</h1>
+        <p class="subtitle">Escolha uma opcao para continuar seu ciclo de aprendizado.</p>
+      </header>
+
+      <section class="grid" aria-label="Opcoes principais">
+        <a class="card" href="/upload-material">
+          <div class="icon" aria-hidden="true">📤</div>
+          <h2>Upload de Material</h2>
+          <p>Cadastre novos conteudos para criar cards de estudo e revisao.</p>
+        </a>
+
+        <a class="card" href="/revisao-leituras">
+          <div class="icon" aria-hidden="true">📚</div>
+          <h2>Revisao de Leituras</h2>
+          <p>Revise trechos de livros e artigos por tema ou em modo shuffle.</p>
+        </a>
+
+        <a class="card" href="/estudo">
+          <div class="icon" aria-hidden="true">🧠</div>
+          <h2>Estudo</h2>
+          <p>Treine com cards de pergunta e resposta por tema ou em shuffle.</p>
+        </a>
+      </section>
+
+      <p class="hint">Dica: comece pelo upload para alimentar sua base de insights.</p>
+    </main>
+  </body>
+</html>

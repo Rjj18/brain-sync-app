@@ -51,6 +51,43 @@
         font-size: 0.95rem;
       }
 
+      .top-links {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 10px;
+      }
+
+      .top-links a {
+        color: #334155;
+        text-decoration: none;
+        font-size: 0.88rem;
+        font-weight: 600;
+      }
+
+      .topic-bar {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 14px;
+      }
+
+      .topic-input {
+        flex: 1;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 9px 10px;
+        font: inherit;
+      }
+
+      .topic-btn {
+        border: 1px solid #c7d2fe;
+        background: #e0e7ff;
+        color: #3730a3;
+        border-radius: 10px;
+        padding: 9px 12px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
       .empty-state {
         background: var(--surface);
         border: 1px solid var(--border);
@@ -208,6 +245,10 @@
           padding: 16px;
         }
 
+        .topic-bar {
+          flex-direction: column;
+        }
+
         .flashcard {
           min-height: 360px;
         }
@@ -220,43 +261,49 @@
   </head>
   <body>
     <main class="dashboard">
+      <nav class="top-links" aria-label="Navegacao">
+        <a href="/">Inicio</a>
+        <a href="/upload-material">Upload</a>
+      </nav>
+
       <h1 class="title">Brain-Sync</h1>
       <p class="subtitle">Dashboard de revisão ativa</p>
 
-      {% if insight %}
-        <section class="card-scene">
-          <article class="flashcard" id="flashcard" role="button" tabindex="0" aria-label="Virar flashcard">
-            <div class="face front">
-              <span class="badge" id="chapterBadge">Capítulo {{ insight.chapter }}</span>
-              <p class="label">Pergunta</p>
-              <p class="content" id="questionText">{{ insight.active_recall.pergunta }}</p>
-            </div>
+      <section class="topic-bar" aria-label="Filtro por tema">
+        <input id="topicInput" class="topic-input" type="text" value="{{ current_topic or '' }}" placeholder="Digite um tema (ex.: neuro-ciencia)" />
+        <button id="topicApplyBtn" class="topic-btn" type="button">Carregar tema</button>
+      </section>
 
-            <div class="face back">
-              <span class="badge">Resposta e Reflexão</span>
-              <p class="label">Resposta</p>
-              <p class="content" id="answerText">{{ insight.active_recall.resposta }}</p>
+      <section class="card-scene" id="cardScene">
+        <article class="flashcard" id="flashcard" role="button" tabindex="0" aria-label="Virar flashcard">
+          <div class="face front">
+            <span class="badge" id="chapterBadge">Capítulo {{ insight.chapter if insight else '-' }}</span>
+            <p class="label">Pergunta</p>
+            <p class="content" id="questionText">{{ insight.active_recall.pergunta if insight and insight.active_recall else '' }}</p>
+          </div>
 
-              <p class="label">Reflexão</p>
-              <p class="content" id="reflectionText">{{ insight.reflection }}</p>
+          <div class="face back">
+            <span class="badge">Resposta e Reflexão</span>
+            <p class="label">Resposta</p>
+            <p class="content" id="answerText">{{ insight.active_recall.resposta if insight and insight.active_recall else '' }}</p>
 
-              <p class="quote" id="quoteText">{{ insight.text }}</p>
-            </div>
-          </article>
-        </section>
+            <p class="label">Reflexão</p>
+            <p class="content" id="reflectionText">{{ insight.reflection if insight else '' }}</p>
 
-        <p class="hint" id="hint">Clique no card para virar</p>
+            <p class="quote" id="quoteText">{{ insight.text if insight else '' }}</p>
+          </div>
+        </article>
+      </section>
 
-        <section class="actions" id="actions">
-          <button class="btn btn-hard" data-feedback="1">Difícil (1 dia)</button>
-          <button class="btn btn-good" data-feedback="2">Bom (4 dias)</button>
-          <button class="btn btn-easy" data-feedback="3">Fácil (7 dias)</button>
-        </section>
+      <p class="hint" id="hint">Clique no card para virar</p>
 
-        <p class="status" id="status"></p>
-      {% else %}
-        <div class="empty-state">Nenhum insight disponível para revisão.</div>
-      {% endif %}
+      <section class="actions" id="actions">
+        <button class="btn btn-hard" data-feedback="1">Difícil (1 dia)</button>
+        <button class="btn btn-good" data-feedback="2">Bom (4 dias)</button>
+        <button class="btn btn-easy" data-feedback="3">Fácil (7 dias)</button>
+      </section>
+
+      <p class="status" id="status"></p>
     </main>
 
     <script>
@@ -265,21 +312,38 @@
         const actions = document.getElementById("actions");
         const status = document.getElementById("status");
         const hint = document.getElementById("hint");
+        const topicInput = document.getElementById("topicInput");
+        const topicApplyBtn = document.getElementById("topicApplyBtn");
         const chapterBadge = document.getElementById("chapterBadge");
         const questionText = document.getElementById("questionText");
         const answerText = document.getElementById("answerText");
         const reflectionText = document.getElementById("reflectionText");
         const quoteText = document.getElementById("quoteText");
-        const cardScene = document.querySelector(".card-scene");
+        const cardScene = document.getElementById("cardScene");
 
-        if (!flashcard || !actions) {
+        if (!flashcard || !actions || !topicInput || !topicApplyBtn) {
           return;
         }
 
         let currentInsightId = "{{ insight.id if insight else '' }}";
+        let seenMarkedForId = null;
 
         function reviewUrl() {
           return "/review/" + currentInsightId;
+        }
+
+        function normalizeTopic(value) {
+          return (value || "")
+            .trim()
+            .toLowerCase()
+            .replace(/\s+/g, "-")
+            .replace(/[^a-z0-9-]/g, "")
+            .replace(/-+/g, "-")
+            .replace(/^-|-$/g, "");
+        }
+
+        function getTopic() {
+          return normalizeTopic(topicInput.value);
         }
 
         function setButtonsDisabled(disabled) {
@@ -295,10 +359,12 @@
           if (hint) {
             hint.textContent = "Clique no card para virar";
           }
+          seenMarkedForId = null;
         }
 
         function renderInsight(insight) {
           currentInsightId = insight.id;
+          seenMarkedForId = null;
           chapterBadge.textContent = "Capítulo " + (insight.chapter || "-");
           questionText.textContent = (insight.active_recall && insight.active_recall.pergunta) || "";
           answerText.textContent = (insight.active_recall && insight.active_recall.resposta) || "";
@@ -324,32 +390,57 @@
             hint.textContent = "";
           }
           status.className = "status ok";
-          status.textContent = "Sem novos cards no momento. Volte mais tarde.";
+          status.textContent = "Sem cards para o tema selecionado no momento.";
         }
 
         async function loadNextInsight() {
-          const response = await fetch("/api/next-insight", { method: "GET" });
+          const topic = getTopic();
+          if (!topic) {
+            showEmptyState();
+            status.className = "status error";
+            status.textContent = "Informe um tema para carregar os cards.";
+            return;
+          }
+
+          const response = await fetch("/api/cards/review?topic=" + encodeURIComponent(topic), { method: "GET" });
           const data = await response.json();
 
           if (!response.ok) {
             throw new Error(data.error || "Falha ao carregar próximo card.");
           }
 
-          if (!data.insight) {
+          if (!data.card) {
             showEmptyState();
             return;
           }
 
-          renderInsight(data.insight);
+          renderInsight(data.card);
+          window.history.replaceState({}, "", window.location.pathname + "?topic=" + encodeURIComponent(topic));
         }
 
-        function flipCard() {
+        async function markSeen() {
+          if (!currentInsightId || seenMarkedForId === currentInsightId) {
+            return;
+          }
+
+          await fetch("/api/insights/" + currentInsightId + "/seen", {
+            method: "POST",
+          });
+          seenMarkedForId = currentInsightId;
+        }
+
+        async function flipCard() {
           const alreadyFlipped = flashcard.classList.contains("flipped");
           if (alreadyFlipped) {
             return;
           }
           flashcard.classList.add("flipped");
           actions.classList.add("show");
+          try {
+            await markSeen();
+          } catch (error) {
+            // Marking view is best effort and should not block study flow.
+          }
           if (hint) {
             hint.textContent = "Escolha a facilidade para agendar a próxima revisão";
           }
@@ -360,6 +451,17 @@
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
             flipCard();
+          }
+        });
+
+        topicApplyBtn.addEventListener("click", async function () {
+          status.className = "status";
+          status.textContent = "Carregando cards...";
+          try {
+            await loadNextInsight();
+          } catch (error) {
+            status.className = "status error";
+            status.textContent = error.message || "Falha ao carregar tema.";
           }
         });
 
@@ -398,6 +500,10 @@
             }
           });
         });
+
+        if (!currentInsightId && topicInput.value) {
+          topicApplyBtn.click();
+        }
       })();
     </script>
   </body>
