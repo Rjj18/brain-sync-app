@@ -1,12 +1,12 @@
 # Brain-Sync
 
-Web app em Flask para revisão ativa com Firestore, executando em Docker.
+Web app em Flask para revisao ativa com Firestore, executando em Docker.
 
-## Repositório oficial
+## Repositorio oficial
 https://github.com/Rjj18/brain-sync-app
 
-## Propósito do app
-O Brain-Sync foi criado para apoiar estudos com revisão espaçada, transformando trechos de conteúdo em flashcards com Active Recall. O objetivo é priorizar automaticamente o que deve ser revisado primeiro e registrar feedback de dificuldade para recalcular a próxima revisão usando lógica inspirada no SM-2.
+## Proposito do app
+O Brain-Sync foi criado para apoiar estudos com revisao espacada, transformando trechos de conteudo em flashcards com Active Recall. O objetivo e priorizar automaticamente o que deve ser revisado primeiro e registrar feedback de dificuldade para recalcular a proxima revisao usando logica inspirada no SM-2.
 
 ## Stack
 - Python 3.12 + Flask
@@ -14,19 +14,39 @@ O Brain-Sync foi criado para apoiar estudos com revisão espaçada, transformand
 - Docker + Docker Compose
 - Gemini API (opcional para geracao automatica de card/trecho)
 
-## Pré-requisitos
+## Pre-requisitos
 - Docker e Docker Compose instalados
 - Credencial de Service Account em `secrets/service-account.json`
 
-## Segurança de credenciais
-- O arquivo `secrets/service-account.json` **não deve** ser versionado.
-- O `.gitignore` já protege a pasta `secrets/` e outros artefatos locais.
-- O app usa `GOOGLE_APPLICATION_CREDENTIALS=/app/secrets/service-account.json` no compose.
+## Seguranca de credenciais
+- O arquivo `secrets/service-account.json` **nao deve** ser versionado.
+- O `.gitignore` ja protege a pasta `secrets/` e outros artefatos locais.
+- O app usa `GOOGLE_APPLICATION_CREDENTIALS=/app/secrets/service-account.json` por padrao.
 
-## Como rodar
+## Como rodar em desenvolvimento
 ```bash
 docker compose up --build -d
 ```
+
+Acesse:
+- Home: http://localhost:5000/
+- Health: http://localhost:5000/health
+
+Logs:
+```bash
+docker compose logs -f web
+```
+
+## Como rodar em modo producao local
+Use o compose de producao para validar comportamento proximo ao deploy externo.
+
+```bash
+docker compose -f docker-compose.prod.yml up --build -d
+```
+
+Acesse:
+- Home: http://localhost:8000/
+- Health: http://localhost:8000/health
 
 ## Ativar geracao com Gemini (opcional)
 Defina as variaveis de ambiente antes de subir o compose:
@@ -45,15 +65,40 @@ $env:GEMINI_MODEL="gemini-1.5-flash"
 
 Sem chave, o app usa fallback local para geracao automatica.
 
-Acesse:
-- Home: http://localhost:5000/
-- Health: http://localhost:5000/health
+## Variaveis de ambiente
+Copie `.env.example` para `.env` e ajuste conforme seu ambiente.
+Para producao, use `.env.production.example` como base.
+
+Principais variaveis:
+- `CORS_ORIGINS` (lista separada por virgula)
+- `FIREBASE_PROJECT_ID`
+- `GOOGLE_CLOUD_PROJECT`
+- `GOOGLE_APPLICATION_CREDENTIALS`
+- `FIREBASE_SERVICE_ACCOUNT_JSON` (alternativa ao arquivo de credencial)
+- `GEMINI_API_KEY` (opcional)
+- `GEMINI_MODEL` (opcional)
 
 ## Rotas principais
-- `GET /` → carrega o próximo card (menor `metadata.next_review`)
-- `POST /review/<id>` → aplica feedback (`1`, `2`, `3`) com SM-2 adaptado
-- `GET /api/next-insight` → retorna próximo card em JSON (usado no fluxo sem reload)
-- `GET /health` → health check simples
+- `GET /` -> home
+- `GET /upload-material` e `POST /upload-material` -> cadastro de material/card/trecho
+- `GET /api/cards/review?topic=` -> proximo card para revisao
+- `GET /api/cards/study?mode=topic|shuffle&topic=` -> estudo de cards
+- `GET /api/readings/next?mode=topic|shuffle&topic=` -> revisao de leitura
+- `POST /review/<id>` -> aplica feedback (`1`, `2`, `3`) com SM-2 adaptado
+- `GET /health` -> health check simples
+
+## Deploy inicial no Render
+Opcao 1: criar o servico manualmente pelo painel.
+
+1. Crie um novo Web Service no Render apontando para este repositorio.
+2. Configure para usar `Dockerfile`.
+3. Defina variaveis de ambiente no painel (`FIREBASE_PROJECT_ID`, `GOOGLE_CLOUD_PROJECT`, `CORS_ORIGINS`, `GEMINI_*`).
+4. Para credencial Firebase, use **uma** opcao:
+	- `GOOGLE_APPLICATION_CREDENTIALS` com arquivo montado em runtime.
+	- `FIREBASE_SERVICE_ACCOUNT_JSON` com o JSON completo da service account como secret.
+5. Apos o deploy, valide `GET /health` e as rotas principais.
+
+Opcao 2: usar `render.yaml` deste repositorio para infra como codigo.
 
 ## Estrutura
 ```text
@@ -61,18 +106,15 @@ brain-sync/
 ├── app.py
 ├── Dockerfile
 ├── docker-compose.yml
+├── docker-compose.prod.yml
 ├── requirements.txt
+├── render.yaml
 ├── templates/
-│   └── index.html
 ├── static/
 ├── secrets/              # local, ignorado no git
+├── .env.production.example
 ├── .dockerignore
 └── .gitignore
-```
-
-## Logs úteis
-```bash
-docker compose logs -f web
 ```
 
 ## Parar containers
@@ -80,5 +122,5 @@ docker compose logs -f web
 docker compose down
 ```
 
-## Licença
-Este projeto está licenciado sob a licença MIT. Veja o arquivo [LICENSE](LICENSE) para detalhes.
+## Licenca
+Este projeto esta licenciado sob a licenca MIT. Veja o arquivo [LICENSE](LICENSE) para detalhes.

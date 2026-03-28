@@ -1,5 +1,6 @@
 import os
 import json
+import logging
 import random
 import re
 from datetime import datetime, timedelta, timezone
@@ -11,14 +12,46 @@ import requests
 from firebase_admin import credentials
 from firebase_admin import firestore
 from flask import Flask, jsonify, render_template, request
+from flask_cors import CORS
 
 app = Flask(__name__)
+
+
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+
+def _parse_cors_origins() -> list[str]:
+    raw_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:5000")
+    origins = [item.strip() for item in raw_origins.split(",") if item.strip()]
+    return origins or ["http://localhost:3000", "http://localhost:5000"]
+
+
+CORS(app, origins=_parse_cors_origins())
 
 
 def _init_firestore_client() -> firestore.Client:
     if not firebase_admin._apps:
         project_id = os.getenv("FIREBASE_PROJECT_ID", "brain-sync-app")
         credentials_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "")
+        credentials_json = (os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON") or "").strip()
+
+        if credentials_json:
+            try:
+                credentials_data = json.loads(credentials_json)
+            except json.JSONDecodeError as error:
+                logger.error("FIREBASE_SERVICE_ACCOUNT_JSON invalido: %s", error)
+                raise
+
+            cred = credentials.Certificate(credentials_data)
+            firebase_admin.initialize_app(
+                credential=cred,
+                options={"projectId": project_id},
+            )
+            return firestore.client()
 
         if credentials_path and Path(credentials_path).exists():
             cred = credentials.Certificate(credentials_path)
@@ -27,6 +60,9 @@ def _init_firestore_client() -> firestore.Client:
                 options={"projectId": project_id},
             )
         else:
+            # Remove path quebrado para nao forcar ADC em arquivo inexistente.
+            if credentials_path and not Path(credentials_path).exists():
+                os.environ.pop("GOOGLE_APPLICATION_CREDENTIALS", None)
             firebase_admin.initialize_app(options={"projectId": project_id})
 
     return firestore.client()
@@ -173,9 +209,11 @@ def _generate_with_gemini(topic: str, text: str) -> dict | None:
         )
         response.raise_for_status()
         data = response.json()
-    except requests.RequestException:
+    except requests.RequestException as error:
+        logger.warning("Falha na chamada Gemini: %s", error)
         return None
-    except ValueError:
+    except ValueError as error:
+        logger.warning("Resposta invalida do Gemini: %s", error)
         return None
 
     candidates = data.get("candidates") or []
@@ -577,6 +615,13 @@ def upload_material():
         created_doc = db.collection("insights").add(doc)[1]
         created_ids.append(created_doc.id)
 
+    logger.info(
+        "Material salvo topic=%s kind=%s ids=%s",
+        topic,
+        content_kind,
+        ",".join(created_ids),
+    )
+
     success_message = "Material salvo com sucesso."
     if request.is_json:
         return jsonify(
@@ -729,6 +774,14 @@ def review(id: str):
     }
 
     doc_ref.update(update_payload)
+
+    logger.info(
+        "Feedback aplicado id=%s feedback=%s interval=%s ease=%.2f",
+        id,
+        feedback,
+        new_interval,
+        new_ease,
+    )
 
     response_payload = {
         "status": "ok",
