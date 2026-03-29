@@ -187,7 +187,7 @@ def _generate_with_gemini(topic: str, text: str) -> dict | None:
 
     prompt = (
         "Voce e um assistente para estudo. Responda apenas com JSON valido, sem markdown. "
-        "Gere os campos: question, answer, reflection, excerpt_summary, confidence. "
+        "Gere os campos: topic, understanding, question, answer, reflection, excerpt_summary, confidence. "
         "Use portugues. confidence deve ser numero entre 0 e 1. "
         f"Tema: {topic}. Texto:\n{text[:8000]}"
     )
@@ -231,6 +231,8 @@ def _generate_with_gemini(topic: str, text: str) -> dict | None:
     answer = (parsed.get("answer") or "").strip()
     reflection = (parsed.get("reflection") or "").strip()
     excerpt_summary = (parsed.get("excerpt_summary") or "").strip()
+    topic_suggestion = _normalize_topic((parsed.get("topic") or "").strip())
+    understanding = (parsed.get("understanding") or "").strip()
 
     if not question or not answer:
         return None
@@ -247,6 +249,8 @@ def _generate_with_gemini(topic: str, text: str) -> dict | None:
         "answer": answer,
         "reflection": reflection or "Gerado automaticamente com Gemini.",
         "excerpt_summary": excerpt_summary or reflection,
+        "topic_suggestion": topic_suggestion,
+        "understanding": understanding or excerpt_summary or reflection,
         "ai": {
             "provider": "gemini",
             "model": model,
@@ -255,8 +259,8 @@ def _generate_with_gemini(topic: str, text: str) -> dict | None:
     }
 
 
-def _generate_auto_content(topic: str, text: str) -> dict:
-    gemini = _generate_with_gemini(topic, text)
+def _generate_auto_content(topic: str, text: str, prefer_gemini: bool = True) -> dict:
+    gemini = _generate_with_gemini(topic, text) if prefer_gemini else None
     if gemini:
         return gemini
 
@@ -266,6 +270,8 @@ def _generate_auto_content(topic: str, text: str) -> dict:
         "answer": answer,
         "reflection": reflection,
         "excerpt_summary": reflection,
+        "topic_suggestion": _normalize_topic(topic),
+        "understanding": answer,
         "ai": {
             "provider": "basic-fallback",
             "model": "heuristic",
@@ -439,6 +445,37 @@ def _list_topics(kind: str | None = None) -> list[str]:
     return sorted(topics)
 
 
+def _list_cards_for_management(topic: str | None = None, limit: int = 300) -> list[dict]:
+    docs = db.collection("insights").where("kind", "==", "card").limit(limit).stream()
+    cards: list[dict] = []
+
+    for doc in docs:
+        data = doc.to_dict() or {}
+        if topic and data.get("topic") != topic:
+            continue
+        cards.append(_serialize_doc(doc))
+
+    cards.sort(
+        key=lambda item: item.get("created_at") if isinstance(item.get("created_at"), datetime) else datetime.min,
+        reverse=True,
+    )
+    return cards
+
+
+def _topic_card_summary(cards: list[dict]) -> list[dict]:
+    summary: dict[str, int] = {}
+    for card in cards:
+        topic = (card.get("topic") or "").strip()
+        if not topic:
+            continue
+        summary[topic] = summary.get(topic, 0) + 1
+
+    return [
+        {"topic": topic, "cards_count": count}
+        for topic, count in sorted(summary.items(), key=lambda item: item[0])
+    ]
+
+
 @app.route("/")
 def home():
     return render_template("home.html")
@@ -459,14 +496,19 @@ def estudo():
 @app.route("/upload-material", methods=["GET", "POST"])
 def upload_material():
     if request.method == "GET":
-        return render_template("upload.html")
+        cards = _list_cards_for_management(limit=300)
+        return render_template(
+            "upload.html",
+            cards=cards,
+            topics_summary=_topic_card_summary(cards),
+        )
 
     payload = request.get_json(silent=True) if request.is_json else request.form.to_dict()
     payload = payload or {}
     uploaded_file = request.files.get("material_file") if not request.is_json else None
 
     chapter_raw = payload.get("chapter", "")
-    content_kind = (payload.get("content_kind") or "card").strip()
+    content_kind = (payload.get("content_kind") or "auto").strip()
     topic_raw = payload.get("topic", "")
     topic = _normalize_topic(topic_raw)
     question = (payload.get("question") or "").strip()
@@ -474,8 +516,11 @@ def upload_material():
     reflection = (payload.get("reflection") or "").strip()
     text = (payload.get("text") or "").strip()
     source_title = (payload.get("source_title") or "").strip()
+    use_gemini_raw = (payload.get("use_gemini", "1") or "").strip().lower()
+    use_gemini = use_gemini_raw in ("1", "true", "on", "yes", "gemini")
     ai_info = None
     excerpt_summary = reflection
+    gemini_understanding = ""
 
     extracted_file_name = ""
     if uploaded_file and uploaded_file.filename:
@@ -484,7 +529,13 @@ def upload_material():
         except ValueError as error:
             if request.is_json:
                 return jsonify({"error": str(error)}), 400
-            return render_template("upload.html", error=str(error)), 400
+            cards = _list_cards_for_management(limit=300)
+            return render_template(
+                "upload.html",
+                error=str(error),
+                cards=cards,
+                topics_summary=_topic_card_summary(cards),
+            ), 400
 
         if not text:
             text = extracted_text
@@ -493,7 +544,7 @@ def upload_material():
 
     if content_kind == "card":
         if text and (not question or not answer):
-            generated = _generate_auto_content(topic or "tema", text)
+            generated = _generate_auto_content(topic or "tema", text, prefer_gemini=use_gemini)
             question = question or generated["question"]
             answer = answer or generated["answer"]
             reflection = reflection or generated["reflection"]
@@ -504,28 +555,51 @@ def upload_material():
             error_message = "Preencha capitulo, tema, pergunta e resposta para salvar o card."
             if request.is_json:
                 return jsonify({"error": error_message}), 400
-            return render_template("upload.html", error=error_message), 400
+            cards = _list_cards_for_management(limit=300)
+            return render_template(
+                "upload.html",
+                error=error_message,
+                cards=cards,
+                topics_summary=_topic_card_summary(cards),
+            ), 400
     elif content_kind == "reading_excerpt":
         if not topic or not text or not source_title:
             error_message = "Para revisao de leitura, preencha tema, titulo da fonte e trecho."
             if request.is_json:
                 return jsonify({"error": error_message}), 400
-            return render_template("upload.html", error=error_message), 400
+            cards = _list_cards_for_management(limit=300)
+            return render_template(
+                "upload.html",
+                error=error_message,
+                cards=cards,
+                topics_summary=_topic_card_summary(cards),
+            ), 400
     elif content_kind == "auto":
-        if not topic or not text:
-            error_message = "No modo automatico, informe tema e texto (ou envie arquivo TXT/PDF)."
+        if not text:
+            error_message = "Envie um arquivo TXT/PDF para processar com Gemini."
             if request.is_json:
                 return jsonify({"error": error_message}), 400
-            return render_template("upload.html", error=error_message), 400
+            cards = _list_cards_for_management(limit=300)
+            return render_template(
+                "upload.html",
+                error=error_message,
+                cards=cards,
+                topics_summary=_topic_card_summary(cards),
+            ), 400
 
         if not source_title:
             source_title = extracted_file_name or "Material enviado"
 
-        generated = _generate_auto_content(topic, text)
+        generated = _generate_auto_content(topic or "geral", text, prefer_gemini=use_gemini)
         question = generated["question"]
         answer = generated["answer"]
         reflection = reflection or generated["reflection"]
         excerpt_summary = generated["excerpt_summary"]
+        gemini_understanding = generated.get("understanding") or excerpt_summary
+        if not topic:
+            topic = _normalize_topic(generated.get("topic_suggestion") or source_title or "geral")
+        if not topic:
+            topic = "geral"
         ai_info = generated["ai"]
         if not chapter_raw:
             chapter_raw = "1"
@@ -533,7 +607,13 @@ def upload_material():
         error_message = "content_kind invalido: use 'card', 'reading_excerpt' ou 'auto'."
         if request.is_json:
             return jsonify({"error": error_message}), 400
-        return render_template("upload.html", error=error_message), 400
+        cards = _list_cards_for_management(limit=300)
+        return render_template(
+            "upload.html",
+            error=error_message,
+            cards=cards,
+            topics_summary=_topic_card_summary(cards),
+        ), 400
 
     try:
         chapter = int(chapter_raw)
@@ -608,7 +688,13 @@ def upload_material():
         if validation_error:
             if request.is_json:
                 return jsonify({"status": "error", "error": validation_error}), 400
-            return render_template("upload.html", error=validation_error), 400
+            cards = _list_cards_for_management(limit=300)
+            return render_template(
+                "upload.html",
+                error=validation_error,
+                cards=cards,
+                topics_summary=_topic_card_summary(cards),
+            ), 400
 
     created_ids = []
     for doc in docs_to_create:
@@ -632,9 +718,47 @@ def upload_material():
                 "kind": content_kind,
                 "ids": created_ids,
                 "count": len(created_ids),
+                "gemini_understanding": gemini_understanding,
             }
         ), 201
-    return render_template("upload.html", success=success_message), 201
+    cards = _list_cards_for_management(limit=300)
+    return render_template(
+        "upload.html",
+        success=success_message,
+        cards=cards,
+        topics_summary=_topic_card_summary(cards),
+        gemini_understanding=gemini_understanding,
+    ), 201
+
+
+@app.route("/api/cards/manage", methods=["GET"])
+def list_cards_for_management():
+    topic = _normalize_topic(request.args.get("topic", ""))
+    cards = _list_cards_for_management(topic=topic if topic else None, limit=400)
+    return jsonify(
+        {
+            "status": "ok",
+            "topic": topic or None,
+            "cards": cards,
+            "topics": _topic_card_summary(cards if topic else _list_cards_for_management(limit=600)),
+        }
+    ), 200
+
+
+@app.route("/api/cards/<id>", methods=["DELETE"])
+def delete_card(id: str):
+    doc_ref = db.collection("insights").document(id)
+    snapshot = doc_ref.get()
+
+    if not snapshot.exists:
+        return jsonify({"status": "error", "error": "Card nao encontrado", "id": id}), 404
+
+    doc = snapshot.to_dict() or {}
+    if doc.get("kind") != "card":
+        return jsonify({"status": "error", "error": "Somente documentos kind=card podem ser excluidos"}), 400
+
+    doc_ref.delete()
+    return jsonify({"status": "ok", "message": "Card excluido", "id": id}), 200
 
 
 @app.route("/api/cards/review", methods=["GET"])
