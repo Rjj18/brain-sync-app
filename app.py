@@ -24,6 +24,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _get_gemini_model() -> str:
+    return (os.getenv("GEMINI_MODEL") or "gemini-1.5-flash").strip()
+
+
 def _parse_cors_origins() -> list[str]:
     raw_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:5000")
     origins = [item.strip() for item in raw_origins.split(",") if item.strip()]
@@ -156,6 +160,96 @@ def _generate_basic_card(topic: str, text: str) -> tuple[str, str, str]:
     return question, answer, reflection
 
 
+def _truncate_chars(value: str, max_chars: int) -> str:
+    text = re.sub(r"\s+", " ", (value or "")).strip()
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 3].rstrip() + "..."
+
+
+def _normalize_study_cards(raw_cards) -> list[dict]:
+    cards: list[dict] = []
+    if not isinstance(raw_cards, list):
+        return cards
+
+    for item in raw_cards:
+        if not isinstance(item, dict):
+            continue
+        question = _truncate_chars((item.get("question") or "").strip(), 110)
+        answer = _truncate_chars((item.get("answer") or "").strip(), 180)
+        if not question or not answer:
+            continue
+        cards.append({"question": question, "answer": answer})
+
+    return cards[:6]
+
+
+def _normalize_review_items(raw_items, full_text: str) -> list[dict]:
+    items: list[dict] = []
+    if isinstance(raw_items, list):
+        for item in raw_items:
+            if not isinstance(item, dict):
+                continue
+            summary = _truncate_chars((item.get("summary") or "").strip(), 220)
+            excerpt = _truncate_chars((item.get("excerpt") or "").strip(), 1200)
+            if not summary and not excerpt:
+                continue
+            items.append(
+                {
+                    "summary": summary or excerpt,
+                    "excerpt": excerpt or summary,
+                }
+            )
+
+    if items:
+        return items[:4]
+
+    fallback_excerpt = _truncate_chars(full_text, 1200)
+    fallback_summary = _truncate_chars(full_text, 220)
+    return [{"summary": fallback_summary, "excerpt": fallback_excerpt}] if fallback_excerpt else []
+
+
+def _build_fallback_study_cards(topic: str, text: str) -> list[dict]:
+    clean_text = re.sub(r"\s+", " ", (text or "")).strip()
+    sentences = [chunk.strip() for chunk in re.split(r"(?<=[.!?])\s+", clean_text) if chunk.strip()]
+
+    templates = [
+        f"Qual ideia central sobre {topic.replace('-', ' ')}?",
+        "Qual pratica ajuda na retencao desse conteudo?",
+        "Que resultado esperado esse tema traz no estudo?",
+    ]
+
+    cards: list[dict] = []
+    for idx, sentence in enumerate(sentences[:3]):
+        question = templates[idx] if idx < len(templates) else "Qual ponto chave deste conteudo?"
+        answer = _truncate_chars(sentence, 180)
+        if answer:
+            cards.append({"question": _truncate_chars(question, 110), "answer": answer})
+
+    if cards:
+        return cards
+
+    question, answer, _ = _generate_basic_card(topic, clean_text)
+    return [{"question": _truncate_chars(question, 110), "answer": _truncate_chars(answer, 180)}]
+
+
+def _build_fallback_review_items(text: str) -> list[dict]:
+    clean_text = re.sub(r"\s+", " ", (text or "")).strip()
+    if not clean_text:
+        return []
+
+    max_chunk = 700
+    chunks = [clean_text[i : i + max_chunk] for i in range(0, min(len(clean_text), max_chunk * 2), max_chunk)]
+    items = []
+    for chunk in chunks:
+        excerpt = _truncate_chars(chunk, 1200)
+        summary = _truncate_chars(chunk, 220)
+        if excerpt:
+            items.append({"summary": summary, "excerpt": excerpt})
+
+    return items[:2]
+
+
 def _extract_json_object(text: str) -> dict | None:
     if not text:
         return None
@@ -177,21 +271,43 @@ def _extract_json_object(text: str) -> dict | None:
     return parsed
 
 
-def _generate_with_gemini(topic: str, text: str) -> dict | None:
-    api_key = (os.getenv("GEMINI_API_KEY") or "").strip()
-    if not api_key:
-        return None
-
-    model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
-    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-
-    prompt = (
-        "Voce e um assistente para estudo. Responda apenas com JSON valido, sem markdown. "
-        "Gere os campos: topic, understanding, question, answer, reflection, excerpt_summary, confidence. "
-        "Use portugues. confidence deve ser numero entre 0 e 1. "
-        f"Tema: {topic}. Texto:\n{text[:8000]}"
+def _build_study_prompt(topic: str, text: str) -> str:
+    return (
+        "System Instruction: "
+        "Atue como um Especialista em Ciencias do Aprendizado e Design Instrucional. "
+        "Sua tarefa e extrair flashcards de alta qualidade do texto fornecido. "
+        "Regras de Extracao: "
+        "Identificacao de Pares: procure por definicoes, processos, causas e efeitos. "
+        "Logica de Notas: se houver nota manuscrita/comentario do usuario, use como pergunta; "
+        "se houver texto entre aspas/destaque, use como resposta. "
+        "Principio da Atomicidade: cada card deve conter apenas uma pergunta simples e direta; "
+        "evite listas longas na resposta. "
+        "Contexto: adicione sempre o campo tema baseado no assunto central do paragrafo. "
+        "Responda apenas JSON valido, sem markdown, com o formato: "
+        "{topic, understanding, reflection, confidence, study_cards:[{question,answer}]}. "
+        "As perguntas e respostas devem ser curtas e objetivas. "
+        f"Tema sugerido: {topic}. Texto: {text[:8000]}"
     )
 
+
+def _build_review_prompt(topic: str, text: str) -> str:
+    return (
+        "System Instruction: "
+        "Atue como um Mentor de Produtividade e Pesquisador Academico. "
+        "Sua tarefa e extrair insights de coaching e reflexoes de literatura do texto fornecido. "
+        "Regras de Extracao: "
+        "Filtro de Relevancia: ignore fatos puramente tecnicos e foque em principios, heuristicas, "
+        "conselhos filosoficos, observacoes sobre comportamento e frases de impacto. "
+        "Sintese de Valor: transforme paragrafos densos em uma unica frase poderosa que resuma o insight (content). "
+        "Provocacao: no campo reflection, crie uma pergunta que force o usuario a aplicar aquele pensamento na realidade atual (estilo GTD). "
+        "Categorizacao: identifique o tema. "
+        "Responda apenas JSON valido, sem markdown, com o formato: "
+        "{topic, understanding, confidence, review_items:[{summary,excerpt,reflection}]}. "
+        f"Tema sugerido: {topic}. Texto: {text[:8000]}"
+    )
+
+
+def _call_gemini_json(prompt: str, api_key: str, model: str, endpoint: str) -> dict | None:
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
@@ -207,13 +323,27 @@ def _generate_with_gemini(topic: str, text: str) -> dict | None:
             json=payload,
             timeout=25,
         )
+        if response.status_code == 400:
+            fallback_payload = {
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {
+                    "temperature": 0.3,
+                },
+            }
+            response = requests.post(
+                endpoint,
+                params={"key": api_key},
+                json=fallback_payload,
+                timeout=25,
+            )
+
         response.raise_for_status()
         data = response.json()
     except requests.RequestException as error:
-        logger.warning("Falha na chamada Gemini: %s", error)
+        logger.warning("Falha na chamada Gemini: %s", type(error).__name__)
         return None
-    except ValueError as error:
-        logger.warning("Resposta invalida do Gemini: %s", error)
+    except ValueError:
+        logger.warning("Resposta invalida do Gemini")
         return None
 
     candidates = data.get("candidates") or []
@@ -223,34 +353,73 @@ def _generate_with_gemini(topic: str, text: str) -> dict | None:
     content = (candidates[0] or {}).get("content") or {}
     parts = content.get("parts") or []
     raw_text = "\n".join((part.get("text") or "") for part in parts if isinstance(part, dict))
-    parsed = _extract_json_object(raw_text)
-    if not parsed:
+    return _extract_json_object(raw_text)
+
+
+def _generate_with_gemini(topic: str, text: str, target_kind: str = "auto") -> dict | None:
+    api_key = (os.getenv("GEMINI_API_KEY") or "").strip()
+    if not api_key:
         return None
 
-    question = (parsed.get("question") or "").strip()
-    answer = (parsed.get("answer") or "").strip()
-    reflection = (parsed.get("reflection") or "").strip()
-    excerpt_summary = (parsed.get("excerpt_summary") or "").strip()
-    topic_suggestion = _normalize_topic((parsed.get("topic") or "").strip())
-    understanding = (parsed.get("understanding") or "").strip()
+    model = _get_gemini_model()
+    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
-    if not question or not answer:
+    parsed_study = None
+    parsed_review = None
+    if target_kind in ("auto", "card", "study"):
+        parsed_study = _call_gemini_json(_build_study_prompt(topic, text), api_key, model, endpoint)
+    if target_kind in ("auto", "reading_excerpt", "review"):
+        parsed_review = _call_gemini_json(_build_review_prompt(topic, text), api_key, model, endpoint)
+
+    if not parsed_study and not parsed_review:
         return None
+
+    topic_suggestion = _normalize_topic(
+        ((parsed_study or {}).get("topic") or (parsed_review or {}).get("topic") or "").strip()
+    )
+    understanding = (
+        ((parsed_study or {}).get("understanding") or "").strip()
+        or ((parsed_review or {}).get("understanding") or "").strip()
+    )
+    reflection = (
+        ((parsed_study or {}).get("reflection") or "").strip()
+        or ((parsed_review or {}).get("reflection") or "").strip()
+    )
+
+    study_cards = _normalize_study_cards((parsed_study or {}).get("study_cards"))
+    review_items = _normalize_review_items((parsed_review or {}).get("review_items"), text)
+
+    if parsed_review and not review_items:
+        review_items = _normalize_review_items(
+            [
+                {
+                    "summary": (parsed_review.get("content") or "").strip(),
+                    "excerpt": _truncate_chars(text, 1200),
+                    "reflection": (parsed_review.get("reflection") or "").strip(),
+                }
+            ],
+            text,
+        )
 
     try:
-        confidence = float(parsed.get("confidence", 0.0))
+        confidence_study = float((parsed_study or {}).get("confidence", 0.0))
     except (TypeError, ValueError):
-        confidence = 0.0
+        confidence_study = 0.0
+    try:
+        confidence_review = float((parsed_review or {}).get("confidence", 0.0))
+    except (TypeError, ValueError):
+        confidence_review = 0.0
 
+    confidence_values = [value for value in [confidence_study, confidence_review] if value > 0]
+    confidence = (sum(confidence_values) / len(confidence_values)) if confidence_values else 0.0
     confidence = max(0.0, min(1.0, confidence))
 
     return {
-        "question": question,
-        "answer": answer,
+        "study_cards": study_cards,
+        "review_items": review_items,
         "reflection": reflection or "Gerado automaticamente com Gemini.",
-        "excerpt_summary": excerpt_summary or reflection,
         "topic_suggestion": topic_suggestion,
-        "understanding": understanding or excerpt_summary or reflection,
+        "understanding": understanding or reflection,
         "ai": {
             "provider": "gemini",
             "model": model,
@@ -259,19 +428,20 @@ def _generate_with_gemini(topic: str, text: str) -> dict | None:
     }
 
 
-def _generate_auto_content(topic: str, text: str, prefer_gemini: bool = True) -> dict:
-    gemini = _generate_with_gemini(topic, text) if prefer_gemini else None
+def _generate_auto_content(topic: str, text: str, prefer_gemini: bool = True, target_kind: str = "auto") -> dict:
+    gemini = _generate_with_gemini(topic, text, target_kind=target_kind) if prefer_gemini else None
     if gemini:
         return gemini
 
-    question, answer, reflection = _generate_basic_card(topic, text)
+    _, answer, reflection = _generate_basic_card(topic, text)
+    fallback_cards = _build_fallback_study_cards(topic, text)
+    fallback_reviews = _build_fallback_review_items(text)
     return {
-        "question": question,
-        "answer": answer,
+        "study_cards": fallback_cards if target_kind in ("auto", "card", "study") else [],
+        "review_items": fallback_reviews if target_kind in ("auto", "reading_excerpt", "review") else [],
         "reflection": reflection,
-        "excerpt_summary": reflection,
         "topic_suggestion": _normalize_topic(topic),
-        "understanding": answer,
+        "understanding": _truncate_chars(answer, 220),
         "ai": {
             "provider": "basic-fallback",
             "model": "heuristic",
@@ -476,6 +646,21 @@ def _topic_card_summary(cards: list[dict]) -> list[dict]:
     ]
 
 
+def _parse_generated_items(raw_value: str | None) -> list[dict]:
+    if not raw_value:
+        return []
+
+    try:
+        parsed = json.loads(raw_value)
+    except (TypeError, ValueError):
+        return []
+
+    if not isinstance(parsed, list):
+        return []
+
+    return [item for item in parsed if isinstance(item, dict)]
+
+
 @app.route("/")
 def home():
     return render_template("home.html")
@@ -493,6 +678,66 @@ def estudo():
     return render_template("study.html", current_topic=current_topic)
 
 
+@app.route("/api/materials/preview", methods=["POST"])
+def preview_materials_with_ai():
+    payload = request.get_json(silent=True) if request.is_json else request.form.to_dict()
+    payload = payload or {}
+    uploaded_file = request.files.get("material_file") if not request.is_json else None
+
+    target_kind = (payload.get("target_kind") or "card").strip().lower()
+    if target_kind not in ("card", "reading_excerpt"):
+        return jsonify({"status": "error", "error": "target_kind invalido: use card ou reading_excerpt"}), 400
+
+    topic = _normalize_topic(payload.get("topic", ""))
+    text = (payload.get("text") or "").strip()
+    source_title = (payload.get("source_title") or "").strip()
+    use_gemini_raw = (payload.get("use_gemini", "1") or "").strip().lower()
+    use_gemini = use_gemini_raw in ("1", "true", "on", "yes", "gemini")
+
+    extracted_file_name = ""
+    if uploaded_file and uploaded_file.filename:
+        try:
+            extracted_file_name, extracted_text = _extract_text_from_file(uploaded_file)
+        except ValueError as error:
+            return jsonify({"status": "error", "error": str(error)}), 400
+        if not text:
+            text = extracted_text
+        if not source_title:
+            source_title = extracted_file_name
+
+    if not text:
+        return jsonify({"status": "error", "error": "Informe texto ou arquivo para processar com IA."}), 400
+
+    if not source_title:
+        source_title = extracted_file_name or "Material enviado"
+
+    generated = _generate_auto_content(topic or "geral", text, prefer_gemini=use_gemini, target_kind=target_kind)
+    if not topic:
+        topic = _normalize_topic(generated.get("topic_suggestion") or source_title or "geral") or "geral"
+
+    if target_kind == "card":
+        preview_items = _normalize_study_cards(generated.get("study_cards"))
+    else:
+        preview_items = _normalize_review_items(generated.get("review_items"), text)
+
+    if not preview_items:
+        return jsonify({"status": "error", "error": "IA nao retornou itens suficientes para pre-visualizacao."}), 422
+
+    return jsonify(
+        {
+            "status": "ok",
+            "target_kind": target_kind,
+            "topic": topic,
+            "source_title": source_title,
+            "text": text,
+            "understanding": generated.get("understanding") or "",
+            "reflection": generated.get("reflection") or "",
+            "ai": generated.get("ai") or {},
+            "items": preview_items,
+        }
+    ), 200
+
+
 @app.route("/upload-material", methods=["GET", "POST"])
 def upload_material():
     if request.method == "GET":
@@ -501,6 +746,7 @@ def upload_material():
             "upload.html",
             cards=cards,
             topics_summary=_topic_card_summary(cards),
+            generated_counts=None,
         )
 
     payload = request.get_json(silent=True) if request.is_json else request.form.to_dict()
@@ -518,9 +764,13 @@ def upload_material():
     source_title = (payload.get("source_title") or "").strip()
     use_gemini_raw = (payload.get("use_gemini", "1") or "").strip().lower()
     use_gemini = use_gemini_raw in ("1", "true", "on", "yes", "gemini")
+    generation_mode = (payload.get("generation_mode") or "manual").strip().lower()
+    generated_items = _parse_generated_items(payload.get("generated_items_json"))
     ai_info = None
     excerpt_summary = reflection
     gemini_understanding = ""
+    auto_study_cards: list[dict] = []
+    auto_review_items: list[dict] = []
 
     extracted_file_name = ""
     if uploaded_file and uploaded_file.filename:
@@ -543,15 +793,43 @@ def upload_material():
             source_title = extracted_file_name
 
     if content_kind == "card":
-        if text and (not question or not answer):
-            generated = _generate_auto_content(topic or "tema", text, prefer_gemini=use_gemini)
-            question = question or generated["question"]
-            answer = answer or generated["answer"]
+        if generation_mode == "gemini" and generated_items:
+            auto_study_cards = _normalize_study_cards(generated_items)
+            gemini_understanding = (payload.get("gemini_understanding") or "").strip()
+            reflection = reflection or (payload.get("reflection") or "").strip() or "Gerado com Gemini."
+            if not source_title:
+                source_title = extracted_file_name or "Material processado com IA"
+            if not topic:
+                topic = "geral"
+            if not chapter_raw:
+                chapter_raw = "1"
+            ai_info = {
+                "provider": "gemini",
+                "model": _get_gemini_model(),
+                "confidence": 0.0,
+            }
+        elif text and (not question or not answer):
+            generated = _generate_auto_content(topic or "tema", text, prefer_gemini=use_gemini, target_kind="card")
+            generated_study = generated.get("study_cards") or []
+            if generated_study:
+                question = question or generated_study[0].get("question", "")
+                answer = answer or generated_study[0].get("answer", "")
             reflection = reflection or generated["reflection"]
-            excerpt_summary = generated["excerpt_summary"]
             ai_info = generated["ai"]
 
-        if not chapter_raw or not topic or not question or not answer:
+        if generation_mode == "gemini" and generated_items:
+            if not chapter_raw or not topic or not auto_study_cards:
+                error_message = "Pre-visualizacao invalida. Processe com IA novamente para gerar cards de estudo."
+                if request.is_json:
+                    return jsonify({"error": error_message}), 400
+                cards = _list_cards_for_management(limit=300)
+                return render_template(
+                    "upload.html",
+                    error=error_message,
+                    cards=cards,
+                    topics_summary=_topic_card_summary(cards),
+                ), 400
+        elif not chapter_raw or not topic or not question or not answer:
             error_message = "Preencha capitulo, tema, pergunta e resposta para salvar o card."
             if request.is_json:
                 return jsonify({"error": error_message}), 400
@@ -563,7 +841,31 @@ def upload_material():
                 topics_summary=_topic_card_summary(cards),
             ), 400
     elif content_kind == "reading_excerpt":
-        if not topic or not text or not source_title:
+        if generation_mode == "gemini" and generated_items:
+            auto_review_items = _normalize_review_items(generated_items, text)
+            gemini_understanding = (payload.get("gemini_understanding") or "").strip()
+            excerpt_summary = auto_review_items[0]["summary"] if auto_review_items else excerpt_summary
+            if not source_title:
+                source_title = extracted_file_name or "Material processado com IA"
+            if not topic:
+                topic = "geral"
+            ai_info = {
+                "provider": "gemini",
+                "model": _get_gemini_model(),
+                "confidence": 0.0,
+            }
+            if not auto_review_items:
+                error_message = "Pre-visualizacao invalida. Processe com IA novamente para gerar revisoes."
+                if request.is_json:
+                    return jsonify({"error": error_message}), 400
+                cards = _list_cards_for_management(limit=300)
+                return render_template(
+                    "upload.html",
+                    error=error_message,
+                    cards=cards,
+                    topics_summary=_topic_card_summary(cards),
+                ), 400
+        elif not topic or not text or not source_title:
             error_message = "Para revisao de leitura, preencha tema, titulo da fonte e trecho."
             if request.is_json:
                 return jsonify({"error": error_message}), 400
@@ -590,11 +892,23 @@ def upload_material():
         if not source_title:
             source_title = extracted_file_name or "Material enviado"
 
-        generated = _generate_auto_content(topic or "geral", text, prefer_gemini=use_gemini)
-        question = generated["question"]
-        answer = generated["answer"]
+        generated = _generate_auto_content(topic or "geral", text, prefer_gemini=use_gemini, target_kind="auto")
+        auto_study_cards = generated.get("study_cards") or []
+        auto_review_items = generated.get("review_items") or []
+        if not auto_study_cards:
+            error_message = "Nao foi possivel gerar cards de estudo a partir do material enviado."
+            if request.is_json:
+                return jsonify({"error": error_message}), 400
+            cards = _list_cards_for_management(limit=300)
+            return render_template(
+                "upload.html",
+                error=error_message,
+                cards=cards,
+                topics_summary=_topic_card_summary(cards),
+            ), 400
+
         reflection = reflection or generated["reflection"]
-        excerpt_summary = generated["excerpt_summary"]
+        excerpt_summary = auto_review_items[0]["summary"] if auto_review_items else reflection
         gemini_understanding = generated.get("understanding") or excerpt_summary
         if not topic:
             topic = _normalize_topic(generated.get("topic_suggestion") or source_title or "geral")
@@ -624,64 +938,130 @@ def upload_material():
     docs_to_create = []
 
     if content_kind in ("card", "auto"):
-        card_payload = {
-            "kind": "card",
-            "topic": topic,
-            "status": "ready",
-            "seen_count": 0,
-            "last_seen_at": None,
-            "chapter": chapter,
-            "text": text,
-            "reflection": reflection,
-            "active_recall": {
-                "pergunta": question,
-                "resposta": answer,
-            },
-            "difficulty": {
-                "last_feedback": None,
-            },
-            "metadata": {
-                "ease": 2.5,
-                "interval": 0,
-                "next_review": now,
-                "last_review_at": None,
-            },
-            "source": {
-                "title": source_title,
-                "file_name": extracted_file_name,
-            },
-            "created_at": firestore.SERVER_TIMESTAMP,
-            "updated_at": firestore.SERVER_TIMESTAMP,
-        }
-        if ai_info:
-            card_payload["ai"] = ai_info
-        docs_to_create.append(card_payload)
+        generate_multiple_study = content_kind == "auto" or (content_kind == "card" and generation_mode == "gemini" and auto_study_cards)
+        if generate_multiple_study:
+            for generated_card in auto_study_cards:
+                card_payload = {
+                    "kind": "card",
+                    "topic": topic,
+                    "status": "ready",
+                    "seen_count": 0,
+                    "last_seen_at": None,
+                    "chapter": chapter,
+                    "text": text,
+                    "reflection": reflection,
+                    "active_recall": {
+                        "pergunta": generated_card["question"],
+                        "resposta": generated_card["answer"],
+                    },
+                    "difficulty": {
+                        "last_feedback": None,
+                    },
+                    "metadata": {
+                        "ease": 2.5,
+                        "interval": 0,
+                        "next_review": now,
+                        "last_review_at": None,
+                    },
+                    "source": {
+                        "title": source_title,
+                        "file_name": extracted_file_name,
+                    },
+                    "created_at": firestore.SERVER_TIMESTAMP,
+                    "updated_at": firestore.SERVER_TIMESTAMP,
+                }
+                if ai_info:
+                    card_payload["ai"] = ai_info
+                docs_to_create.append(card_payload)
+        else:
+            card_payload = {
+                "kind": "card",
+                "topic": topic,
+                "status": "ready",
+                "seen_count": 0,
+                "last_seen_at": None,
+                "chapter": chapter,
+                "text": text,
+                "reflection": reflection,
+                "active_recall": {
+                    "pergunta": question,
+                    "resposta": answer,
+                },
+                "difficulty": {
+                    "last_feedback": None,
+                },
+                "metadata": {
+                    "ease": 2.5,
+                    "interval": 0,
+                    "next_review": now,
+                    "last_review_at": None,
+                },
+                "source": {
+                    "title": source_title,
+                    "file_name": extracted_file_name,
+                },
+                "created_at": firestore.SERVER_TIMESTAMP,
+                "updated_at": firestore.SERVER_TIMESTAMP,
+            }
+            if ai_info:
+                card_payload["ai"] = ai_info
+            docs_to_create.append(card_payload)
 
     if content_kind in ("reading_excerpt", "auto"):
-        excerpt_payload = {
-            "kind": "reading_excerpt",
-            "topic": topic,
-            "status": "ready",
-            "seen_count": 0,
-            "last_seen_at": None,
-            "content": {
-                "text": text,
-                "summary": excerpt_summary,
-            },
-            "source": {
-                "title": source_title,
-                "file_name": extracted_file_name,
-            },
-            "reading": {
-                "mode_eligible": "both",
-                "order_key": now,
-            },
-            "created_at": firestore.SERVER_TIMESTAMP,
-            "updated_at": firestore.SERVER_TIMESTAMP,
-        }
-        if ai_info:
-            excerpt_payload["ai"] = ai_info
-        docs_to_create.append(excerpt_payload)
+        generate_multiple_review = (content_kind == "auto" and auto_review_items) or (
+            content_kind == "reading_excerpt" and generation_mode == "gemini" and auto_review_items
+        )
+        if generate_multiple_review:
+            for review_item in auto_review_items:
+                excerpt_payload = {
+                    "kind": "reading_excerpt",
+                    "topic": topic,
+                    "status": "ready",
+                    "seen_count": 0,
+                    "last_seen_at": None,
+                    "content": {
+                        "text": review_item["excerpt"],
+                        "summary": review_item["summary"],
+                    },
+                    "source": {
+                        "title": source_title,
+                        "file_name": extracted_file_name,
+                    },
+                    "reading": {
+                        "mode_eligible": "both",
+                        "order_key": now,
+                    },
+                    "created_at": firestore.SERVER_TIMESTAMP,
+                    "updated_at": firestore.SERVER_TIMESTAMP,
+                }
+                if ai_info:
+                    excerpt_payload["ai"] = ai_info
+                docs_to_create.append(excerpt_payload)
+        else:
+            excerpt_payload = {
+                "kind": "reading_excerpt",
+                "topic": topic,
+                "status": "ready",
+                "seen_count": 0,
+                "last_seen_at": None,
+                "content": {
+                    "text": text,
+                    "summary": excerpt_summary,
+                },
+                "source": {
+                    "title": source_title,
+                    "file_name": extracted_file_name,
+                },
+                "reading": {
+                    "mode_eligible": "both",
+                    "order_key": now,
+                },
+                "created_at": firestore.SERVER_TIMESTAMP,
+                "updated_at": firestore.SERVER_TIMESTAMP,
+            }
+            if ai_info:
+                excerpt_payload["ai"] = ai_info
+            docs_to_create.append(excerpt_payload)
 
     for doc in docs_to_create:
         validation_error = _validate_insight_payload(doc)
@@ -701,6 +1081,9 @@ def upload_material():
         created_doc = db.collection("insights").add(doc)[1]
         created_ids.append(created_doc.id)
 
+    study_generated_count = sum(1 for doc in docs_to_create if doc.get("kind") == "card")
+    review_generated_count = sum(1 for doc in docs_to_create if doc.get("kind") == "reading_excerpt")
+
     logger.info(
         "Material salvo topic=%s kind=%s ids=%s",
         topic,
@@ -708,7 +1091,11 @@ def upload_material():
         ",".join(created_ids),
     )
 
-    success_message = "Material salvo com sucesso."
+    success_message = (
+        "Material salvo com sucesso. "
+        f"{len(created_ids)} itens gerados "
+        f"({study_generated_count} estudo, {review_generated_count} revisao)."
+    )
     if request.is_json:
         return jsonify(
             {
@@ -718,6 +1105,10 @@ def upload_material():
                 "kind": content_kind,
                 "ids": created_ids,
                 "count": len(created_ids),
+                "generated_counts": {
+                    "study": study_generated_count,
+                    "review": review_generated_count,
+                },
                 "gemini_understanding": gemini_understanding,
             }
         ), 201
@@ -727,6 +1118,7 @@ def upload_material():
         success=success_message,
         cards=cards,
         topics_summary=_topic_card_summary(cards),
+        generated_counts={"study": study_generated_count, "review": review_generated_count},
         gemini_understanding=gemini_understanding,
     ), 201
 

@@ -110,6 +110,86 @@
         color: var(--err-text);
       }
 
+      .generation-summary {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        margin: 0 0 14px;
+      }
+
+      .generation-item {
+        border: 1px solid var(--chip-border);
+        background: var(--chip-bg);
+        color: var(--chip-text);
+        border-radius: 10px;
+        padding: 8px 10px;
+        font-weight: 700;
+        font-size: 0.9rem;
+      }
+
+      .tabs {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+
+      .tab-btn {
+        flex: 1;
+        border: 1px solid var(--border);
+        background: #f8fafc;
+        color: #0f172a;
+      }
+
+      .tab-btn.active {
+        background: var(--accent);
+        color: #fff;
+        border-color: transparent;
+      }
+
+      .mode-switch {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+
+      .mode-btn {
+        flex: 1;
+        border: 1px solid var(--border);
+        background: #f8fafc;
+        color: #0f172a;
+      }
+
+      .mode-btn.active {
+        background: #ccfbf1;
+        color: #115e59;
+        border-color: #99f6e4;
+      }
+
+      .gen-pane {
+        display: none;
+      }
+
+      .gen-pane.active {
+        display: block;
+      }
+
+      .preview-wrap {
+        margin-top: 10px;
+        border: 1px dashed var(--border);
+        border-radius: 10px;
+        padding: 10px;
+        background: #f8fafc;
+      }
+
+      .preview-list {
+        margin: 0;
+        padding-left: 18px;
+      }
+
+      .preview-list li {
+        margin-bottom: 8px;
+      }
+
       .topics-grid {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
@@ -272,6 +352,12 @@
       {% if error %}
         <div class="alert error">{{ error }}</div>
       {% endif %}
+      {% if generated_counts %}
+        <section class="generation-summary" aria-label="Resumo do envio">
+          <div class="generation-item">Cards de estudo: {{ generated_counts.study }}</div>
+          <div class="generation-item">Cards de revisao: {{ generated_counts.review }}</div>
+        </section>
+      {% endif %}
 
       <section class="layout">
         <section class="panel" aria-label="Gerenciamento de cards">
@@ -312,30 +398,164 @@
         </section>
 
         <section class="panel" aria-label="Adicionar material">
-          <h2>Adicionar material</h2>
-          <p>Envie um arquivo TXT/PDF ou cole texto diretamente. O Gemini gera automaticamente os cards e abaixo voce ve o entendimento do material processado.</p>
+          <h2>Geracao de materiais</h2>
+          <p>Escolha a aba principal e o modo de geracao. No modo com IA, voce processa primeiro, revisa o resultado e depois gera o material.</p>
 
-          <form method="post" action="/upload-material" enctype="multipart/form-data" id="uploadForm">
-            <input type="hidden" name="content_kind" value="auto" />
-            <input type="hidden" name="use_gemini" value="1" />
+          <div class="tabs" role="tablist" aria-label="Tipos de geracao">
+            <button type="button" class="tab-btn active" data-main-tab="study">Gerar cards de estudo</button>
+            <button type="button" class="tab-btn" data-main-tab="review">Gerar revisao de literatura</button>
+          </div>
 
-            <label>
-              Arquivo TXT/PDF
-              <input type="file" name="material_file" accept=".txt,.pdf,application/pdf,text/plain" />
-            </label>
+          <section class="gen-pane active" data-pane="study">
+            <div class="mode-switch" role="tablist" aria-label="Modo estudo">
+              <button type="button" class="mode-btn active" data-mode="manual-study">Upload manual com formulario</button>
+              <button type="button" class="mode-btn" data-mode="gemini-study">Processamento com Gemini</button>
+            </div>
 
-            <label>
-              Texto direto (opcional)
-              <textarea name="text" placeholder="Cole aqui um texto para o Gemini processar caso nao queira enviar arquivo."></textarea>
-            </label>
+            <form method="post" action="/upload-material" enctype="multipart/form-data" data-mode-form="manual-study">
+              <input type="hidden" name="content_kind" value="card" />
+              <input type="hidden" name="generation_mode" value="manual" />
 
-            <button type="submit">Salvar material</button>
-          </form>
+              <label>
+                Capitulo
+                <input type="number" name="chapter" min="1" required />
+              </label>
+              <label>
+                Tema
+                <input type="text" name="topic" placeholder="Ex.: memoria-e-aprendizado" required />
+              </label>
+              <label>
+                Titulo da fonte
+                <input type="text" name="source_title" placeholder="Livro, artigo ou aula" />
+              </label>
+              <label>
+                Pergunta (curta)
+                <textarea name="question" placeholder="Pergunta objetiva" required></textarea>
+              </label>
+              <label>
+                Resposta (curta)
+                <textarea name="answer" placeholder="Resposta objetiva" required></textarea>
+              </label>
+              <label>
+                Reflexao
+                <textarea name="reflection" placeholder="Observacao opcional"></textarea>
+              </label>
+              <label>
+                Texto de apoio
+                <textarea name="text" placeholder="Trecho opcional para contexto"></textarea>
+              </label>
 
-          <label>
-            O que o Gemini entendeu
-            <textarea readonly>{{ gemini_understanding or '' }}</textarea>
-          </label>
+              <button type="submit">Gerar card de estudo</button>
+            </form>
+
+            <form method="post" action="/upload-material" enctype="multipart/form-data" data-mode-form="gemini-study" style="display: none">
+              <input type="hidden" name="content_kind" value="card" />
+              <input type="hidden" name="generation_mode" value="gemini" />
+              <input type="hidden" name="use_gemini" value="1" />
+              <input type="hidden" name="generated_items_json" data-generated-items="study" />
+              <input type="hidden" name="gemini_understanding" data-understanding-target="study" />
+              <input type="hidden" name="reflection" data-reflection-target="study" />
+
+              <label>
+                Capitulo
+                <input type="number" name="chapter" min="1" value="1" required />
+              </label>
+              <label>
+                Tema (opcional)
+                <input type="text" name="topic" data-topic-input="study" placeholder="Deixe vazio para IA sugerir" />
+              </label>
+              <label>
+                Titulo da fonte (opcional)
+                <input type="text" name="source_title" data-source-input="study" placeholder="Livro, artigo ou aula" />
+              </label>
+              <label>
+                Arquivo TXT/PDF (opcional)
+                <input type="file" name="material_file" accept=".txt,.pdf,application/pdf,text/plain" data-file-input="study" />
+              </label>
+              <label>
+                Texto direto (opcional)
+                <textarea name="text" data-text-input="study" placeholder="Cole um texto se nao quiser enviar arquivo."></textarea>
+              </label>
+
+              <button type="button" data-process-btn="study">Processar com IA</button>
+              <div class="preview-wrap" data-preview-wrap="study" style="display: none">
+                <p><strong>Preview (cards de estudo)</strong></p>
+                <ol class="preview-list" data-preview-list="study"></ol>
+                <label>
+                  O que a IA entendeu
+                  <textarea readonly data-preview-understanding="study"></textarea>
+                </label>
+                <button type="submit" data-submit-btn="study" disabled>Gerar material</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="gen-pane" data-pane="review">
+            <div class="mode-switch" role="tablist" aria-label="Modo revisao">
+              <button type="button" class="mode-btn active" data-mode="manual-review">Upload manual com formulario</button>
+              <button type="button" class="mode-btn" data-mode="gemini-review">Processamento com Gemini</button>
+            </div>
+
+            <form method="post" action="/upload-material" enctype="multipart/form-data" data-mode-form="manual-review">
+              <input type="hidden" name="content_kind" value="reading_excerpt" />
+              <input type="hidden" name="generation_mode" value="manual" />
+
+              <label>
+                Tema
+                <input type="text" name="topic" placeholder="Ex.: aprendizado" required />
+              </label>
+              <label>
+                Titulo da fonte
+                <input type="text" name="source_title" placeholder="Livro, artigo ou aula" required />
+              </label>
+              <label>
+                Arquivo TXT/PDF (opcional)
+                <input type="file" name="material_file" accept=".txt,.pdf,application/pdf,text/plain" />
+              </label>
+              <label>
+                Texto da revisao
+                <textarea name="text" placeholder="Trecho para revisao" required></textarea>
+              </label>
+
+              <button type="submit">Gerar revisao de literatura</button>
+            </form>
+
+            <form method="post" action="/upload-material" enctype="multipart/form-data" data-mode-form="gemini-review" style="display: none">
+              <input type="hidden" name="content_kind" value="reading_excerpt" />
+              <input type="hidden" name="generation_mode" value="gemini" />
+              <input type="hidden" name="use_gemini" value="1" />
+              <input type="hidden" name="generated_items_json" data-generated-items="review" />
+              <input type="hidden" name="gemini_understanding" data-understanding-target="review" />
+
+              <label>
+                Tema (opcional)
+                <input type="text" name="topic" data-topic-input="review" placeholder="Deixe vazio para IA sugerir" />
+              </label>
+              <label>
+                Titulo da fonte (opcional)
+                <input type="text" name="source_title" data-source-input="review" placeholder="Livro, artigo ou aula" />
+              </label>
+              <label>
+                Arquivo TXT/PDF (opcional)
+                <input type="file" name="material_file" accept=".txt,.pdf,application/pdf,text/plain" data-file-input="review" />
+              </label>
+              <label>
+                Texto direto (opcional)
+                <textarea name="text" data-text-input="review" placeholder="Cole um texto se nao quiser enviar arquivo."></textarea>
+              </label>
+
+              <button type="button" data-process-btn="review">Processar com IA</button>
+              <div class="preview-wrap" data-preview-wrap="review" style="display: none">
+                <p><strong>Preview (revisao de literatura)</strong></p>
+                <ol class="preview-list" data-preview-list="review"></ol>
+                <label>
+                  O que a IA entendeu
+                  <textarea readonly data-preview-understanding="review"></textarea>
+                </label>
+                <button type="submit" data-submit-btn="review" disabled>Gerar material</button>
+              </div>
+            </form>
+          </section>
         </section>
       </section>
 
@@ -345,6 +565,10 @@
           const topicsGrid = document.getElementById("topicsGrid");
           const topicFilter = document.getElementById("topicFilter");
           const filterBtn = document.getElementById("filterBtn");
+          const mainTabButtons = Array.from(document.querySelectorAll("[data-main-tab]"));
+          const panes = Array.from(document.querySelectorAll("[data-pane]"));
+          const modeButtons = Array.from(document.querySelectorAll("[data-mode]"));
+          const modeForms = Array.from(document.querySelectorAll("[data-mode-form]"));
 
           function truncateText(value, maxSize) {
             if (!value) {
@@ -440,6 +664,143 @@
             }
           }
 
+          function activateMainTab(tabName) {
+            mainTabButtons.forEach(function (btn) {
+              btn.classList.toggle("active", btn.getAttribute("data-main-tab") === tabName);
+            });
+            panes.forEach(function (pane) {
+              pane.classList.toggle("active", pane.getAttribute("data-pane") === tabName);
+            });
+          }
+
+          function activateMode(modeName) {
+            modeButtons.forEach(function (btn) {
+              btn.classList.toggle("active", btn.getAttribute("data-mode") === modeName);
+            });
+            modeForms.forEach(function (form) {
+              const isActive = form.getAttribute("data-mode-form") === modeName;
+              form.style.display = isActive ? "grid" : "none";
+            });
+          }
+
+          function renderPreview(mode, items, understanding) {
+            const wrap = document.querySelector('[data-preview-wrap="' + mode + '"]');
+            const list = document.querySelector('[data-preview-list="' + mode + '"]');
+            const understandingBox = document.querySelector('[data-preview-understanding="' + mode + '"]');
+            const hiddenItems = document.querySelector('[data-generated-items="' + mode + '"]');
+            const hiddenUnderstanding = document.querySelector('[data-understanding-target="' + mode + '"]');
+            const hiddenReflection = document.querySelector('[data-reflection-target="' + mode + '"]');
+            const submitBtn = document.querySelector('[data-submit-btn="' + mode + '"]');
+
+            if (!wrap || !list || !hiddenItems || !submitBtn) {
+              return;
+            }
+
+            if (mode === "study") {
+              list.innerHTML = items
+                .map(function (item) {
+                  return "<li><strong>P:</strong> " + truncateText(item.question || "", 120) + "<br /><strong>R:</strong> " + truncateText(item.answer || "", 190) + "</li>";
+                })
+                .join("");
+            } else {
+              list.innerHTML = items
+                .map(function (item) {
+                  return "<li><strong>Resumo:</strong> " + truncateText(item.summary || "", 190) + "<br /><strong>Trecho:</strong> " + truncateText(item.excerpt || "", 240) + "</li>";
+                })
+                .join("");
+            }
+
+            hiddenItems.value = JSON.stringify(items);
+            if (hiddenUnderstanding) {
+              hiddenUnderstanding.value = understanding || "";
+            }
+            if (hiddenReflection) {
+              hiddenReflection.value = understanding || "";
+            }
+            if (understandingBox) {
+              understandingBox.value = understanding || "";
+            }
+
+            wrap.style.display = "block";
+            submitBtn.disabled = items.length === 0;
+          }
+
+          async function processWithAi(mode) {
+            const topicInput = document.querySelector('[data-topic-input="' + mode + '"]');
+            const sourceInput = document.querySelector('[data-source-input="' + mode + '"]');
+            const textInput = document.querySelector('[data-text-input="' + mode + '"]');
+            const fileInput = document.querySelector('[data-file-input="' + mode + '"]');
+
+            const formData = new FormData();
+            formData.append("target_kind", mode === "study" ? "card" : "reading_excerpt");
+            formData.append("use_gemini", "1");
+            formData.append("topic", topicInput ? topicInput.value : "");
+            formData.append("source_title", sourceInput ? sourceInput.value : "");
+            formData.append("text", textInput ? textInput.value : "");
+            if (fileInput && fileInput.files && fileInput.files[0]) {
+              formData.append("material_file", fileInput.files[0]);
+            }
+
+            const response = await fetch("/api/materials/preview", {
+              method: "POST",
+              body: formData,
+            });
+
+            const payload = await response.json().catch(function () {
+              return {};
+            });
+
+            if (!response.ok) {
+              throw new Error(payload.error || "Falha ao processar com IA.");
+            }
+
+            if (topicInput && !topicInput.value) {
+              topicInput.value = payload.topic || "";
+            }
+            if (sourceInput && !sourceInput.value) {
+              sourceInput.value = payload.source_title || "";
+            }
+            if (textInput && !textInput.value) {
+              textInput.value = payload.text || "";
+            }
+
+            const reflectionTarget = document.querySelector('[data-reflection-target="' + mode + '"]');
+            if (reflectionTarget) {
+              reflectionTarget.value = payload.reflection || payload.understanding || "";
+            }
+
+            renderPreview(mode, payload.items || [], payload.understanding || "");
+          }
+
+          mainTabButtons.forEach(function (btn) {
+            btn.addEventListener("click", function () {
+              const tab = btn.getAttribute("data-main-tab") || "study";
+              activateMainTab(tab);
+              activateMode("manual-" + tab);
+            });
+          });
+
+          modeButtons.forEach(function (btn) {
+            btn.addEventListener("click", function () {
+              const mode = btn.getAttribute("data-mode");
+              if (mode) {
+                activateMode(mode);
+              }
+            });
+          });
+
+          Array.from(document.querySelectorAll("[data-process-btn]")).forEach(function (btn) {
+            btn.addEventListener("click", function () {
+              const mode = btn.getAttribute("data-process-btn");
+              if (!mode) {
+                return;
+              }
+              processWithAi(mode).catch(function (error) {
+                window.alert(error.message);
+              });
+            });
+          });
+
           if (filterBtn) {
             filterBtn.addEventListener("click", function () {
               loadCardsByFilter().catch(function (error) {
@@ -485,6 +846,9 @@
                 });
             });
           }
+
+          activateMainTab("study");
+          activateMode("manual-study");
 
         })();
       </script>

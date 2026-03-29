@@ -1,18 +1,13 @@
 services:
   web:
+    env_file:
+      - .env.production
     build:
       context: .
       dockerfile: Dockerfile
     environment:
       FLASK_ENV: production
       PORT: 8000
-      LOG_LEVEL: INFO
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5000}
-      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-brain-sync-app}
-      GOOGLE_CLOUD_PROJECT: ${GOOGLE_CLOUD_PROJECT:-brain-sync-app}
-      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-/app/secrets/service-account.json}
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-1.5-flash}
     ports:
       - "8000:8000"
     volumes:
