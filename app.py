@@ -576,7 +576,7 @@ def upload_material():
             ), 400
     elif content_kind == "auto":
         if not text:
-            error_message = "Envie um arquivo TXT/PDF para processar com Gemini."
+            error_message = "Envie um arquivo TXT/PDF ou cole um texto para processar com Gemini."
             if request.is_json:
                 return jsonify({"error": error_message}), 400
             cards = _list_cards_for_management(limit=300)

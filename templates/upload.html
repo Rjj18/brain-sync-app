@@ -313,7 +313,7 @@
 
         <section class="panel" aria-label="Adicionar material">
           <h2>Adicionar material</h2>
-          <p>Envie um arquivo TXT/PDF. O Gemini gera automaticamente os cards e abaixo voce ve o entendimento do material processado.</p>
+          <p>Envie um arquivo TXT/PDF ou cole texto diretamente. O Gemini gera automaticamente os cards e abaixo voce ve o entendimento do material processado.</p>
 
           <form method="post" action="/upload-material" enctype="multipart/form-data" id="uploadForm">
             <input type="hidden" name="content_kind" value="auto" />
@@ -321,7 +321,12 @@
 
             <label>
               Arquivo TXT/PDF
-              <input type="file" name="material_file" accept=".txt,.pdf,application/pdf,text/plain" required />
+              <input type="file" name="material_file" accept=".txt,.pdf,application/pdf,text/plain" />
+            </label>
+
+            <label>
+              Texto direto (opcional)
+              <textarea name="text" placeholder="Cole aqui um texto para o Gemini processar caso nao queira enviar arquivo."></textarea>
             </label>
 
             <button type="submit">Salvar material</button>
