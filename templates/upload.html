@@ -343,8 +343,8 @@
       <div class="top-links">
         <a href="/">Voltar para inicio</a>
       </div>
-      <h1>Gestao de Temas e Cards</h1>
-      <p class="subtitle">Veja os temas cadastrados, gerencie cards e adicione novo material com Gemini na mesma tela.</p>
+      <h1>Gestao de Temas e Itens</h1>
+      <p class="subtitle">Veja os temas cadastrados, gerencie cards de estudo e itens de revisao de leitura, e adicione novo material com Gemini na mesma tela.</p>
 
       {% if success %}
         <div class="alert ok">{{ success }}</div>
@@ -360,21 +360,21 @@
       {% endif %}
 
       <section class="layout">
-        <section class="panel" aria-label="Gerenciamento de cards">
+        <section class="panel" aria-label="Gerenciamento de itens">
           <h2>Temas cadastrados</h2>
-          <p>Resumo dos temas e quantidade de cards existentes.</p>
+          <p>Resumo dos temas e quantidade de itens existentes (estudo e leitura).</p>
 
           <div class="topics-grid" id="topicsGrid">
             {% for item in topics_summary or [] %}
               <span class="topic-chip">{{ item.topic }} ({{ item.cards_count }})</span>
             {% endfor %}
             {% if not (topics_summary or []) %}
-              <p class="empty">Nenhum tema com card cadastrado.</p>
+              <p class="empty">Nenhum tema cadastrado.</p>
             {% endif %}
           </div>
 
           <div class="filter-bar">
-            <input id="topicFilter" type="text" placeholder="Filtrar cards por tema" />
+            <input id="topicFilter" type="text" placeholder="Filtrar itens por tema" />
             <button id="filterBtn" type="button">Filtrar</button>
           </div>
 
@@ -384,15 +384,27 @@
                 <div class="card-head">
                   <div>
                     <p class="card-topic">{{ card.topic }}</p>
-                    <p class="card-question">{{ card.active_recall.pergunta if card.active_recall else 'Sem pergunta' }}</p>
+                    <p class="card-question">
+                      {% if card.kind == 'reading_excerpt' %}
+                        {{ card.content.summary if card.content else 'Sem resumo' }}
+                      {% else %}
+                        {{ card.active_recall.pergunta if card.active_recall else 'Sem pergunta' }}
+                      {% endif %}
+                    </p>
                   </div>
                   <button class="delete-btn" type="button" data-delete-card="{{ card.id }}">Excluir</button>
                 </div>
-                <p class="card-answer">{{ card.active_recall.resposta if card.active_recall else 'Sem resposta' }}</p>
+                <p class="card-answer">
+                  {% if card.kind == 'reading_excerpt' %}
+                    {{ card.content.text if card.content else 'Sem conteudo' }}
+                  {% else %}
+                    {{ card.active_recall.resposta if card.active_recall else 'Sem resposta' }}
+                  {% endif %}
+                </p>
               </article>
             {% endfor %}
             {% if not (cards or []) %}
-              <p class="empty" id="cardsEmpty">Nenhum card encontrado.</p>
+              <p class="empty" id="cardsEmpty">Nenhum item encontrado.</p>
             {% endif %}
           </div>
         </section>
@@ -596,8 +608,13 @@
           }
 
           function cardMarkup(card) {
-            const question = card.active_recall && card.active_recall.pergunta ? card.active_recall.pergunta : "Sem pergunta";
-            const answer = card.active_recall && card.active_recall.resposta ? card.active_recall.resposta : "Sem resposta";
+            const isReading = card.kind === "reading_excerpt";
+            const question = isReading
+              ? (card.content && card.content.summary ? card.content.summary : "Sem resumo")
+              : (card.active_recall && card.active_recall.pergunta ? card.active_recall.pergunta : "Sem pergunta");
+            const answer = isReading
+              ? (card.content && card.content.text ? card.content.text : "Sem conteudo")
+              : (card.active_recall && card.active_recall.resposta ? card.active_recall.resposta : "Sem resposta");
             return (
               '<article class="card-item" data-card-id="' +
               card.id +
@@ -608,6 +625,8 @@
               '<div>' +
               '<p class="card-topic">' +
               (card.topic || "") +
+              " - " +
+              (isReading ? "revisao" : "estudo") +
               '</p>' +
               '<p class="card-question">' +
               truncateText(question, 120) +
@@ -646,7 +665,7 @@
             const query = topic ? "?topic=" + encodeURIComponent(topic) : "";
             const response = await fetch("/api/cards/manage" + query);
             if (!response.ok) {
-              throw new Error("Falha ao carregar cards para gerenciamento.");
+              throw new Error("Falha ao carregar itens para gerenciamento.");
             }
 
             const payload = await response.json();

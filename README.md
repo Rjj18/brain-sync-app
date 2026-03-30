@@ -48,6 +48,24 @@ Acesse:
 - Home: http://localhost:8000/
 - Health: http://localhost:8000/health
 
+## Script para producao com tunel externo
+Para facilitar operacao, os scripts abaixo sobem e derrubam o ambiente de producao com tunnel externo:
+
+Subir producao + tunnel:
+```bash
+./scripts/up_prod_tunnel.sh
+```
+
+Desligar tunnel + producao:
+```bash
+./scripts/down_prod_tunnel.sh
+```
+
+Observacoes:
+- O script de subida usa `sudo docker compose -f docker-compose.prod.yml up -d --build`.
+- O tunnel e aberto via container `cloudflare/cloudflared` (Quick Tunnel).
+- A URL externa e exibida no final da execucao.
+
 ## Ativar geracao com Gemini (opcional)
 Defina as variaveis de ambiente antes de subir o compose:
 

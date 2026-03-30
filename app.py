@@ -37,6 +37,15 @@ def _parse_cors_origins() -> list[str]:
 CORS(app, origins=_parse_cors_origins())
 
 
+@app.after_request
+def disable_api_cache(response):
+    if request.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
+
 def _init_firestore_client() -> firestore.Client:
     if not firebase_admin._apps:
         project_id = os.getenv("FIREBASE_PROJECT_ID", "brain-sync-app")
@@ -615,12 +624,19 @@ def _list_topics(kind: str | None = None) -> list[str]:
     return sorted(topics)
 
 
-def _list_cards_for_management(topic: str | None = None, limit: int = 300) -> list[dict]:
-    docs = db.collection("insights").where("kind", "==", "card").limit(limit).stream()
+def _list_cards_for_management(topic: str | None = None, limit: int = 300, kind: str | None = None) -> list[dict]:
+    if kind:
+        docs = db.collection("insights").where("kind", "==", kind).limit(limit).stream()
+    else:
+        docs = db.collection("insights").limit(limit).stream()
+
     cards: list[dict] = []
 
     for doc in docs:
         data = doc.to_dict() or {}
+        doc_kind = data.get("kind")
+        if doc_kind not in ("card", "reading_excerpt"):
+            continue
         if topic and data.get("topic") != topic:
             continue
         cards.append(_serialize_doc(doc))
@@ -1126,13 +1142,19 @@ def upload_material():
 @app.route("/api/cards/manage", methods=["GET"])
 def list_cards_for_management():
     topic = _normalize_topic(request.args.get("topic", ""))
-    cards = _list_cards_for_management(topic=topic if topic else None, limit=400)
+    kind = (request.args.get("kind", "all") or "all").strip().lower()
+    if kind not in ("all", "card", "reading_excerpt"):
+        return jsonify({"status": "error", "error": "kind invalido: use all, card ou reading_excerpt"}), 400
+
+    kind_filter = None if kind == "all" else kind
+    cards = _list_cards_for_management(topic=topic if topic else None, limit=400, kind=kind_filter)
     return jsonify(
         {
             "status": "ok",
+            "kind": kind,
             "topic": topic or None,
             "cards": cards,
-            "topics": _topic_card_summary(cards if topic else _list_cards_for_management(limit=600)),
+            "topics": _topic_card_summary(cards if topic else _list_cards_for_management(limit=600, kind=kind_filter)),
         }
     ), 200
 
@@ -1146,11 +1168,16 @@ def delete_card(id: str):
         return jsonify({"status": "error", "error": "Card nao encontrado", "id": id}), 404
 
     doc = snapshot.to_dict() or {}
-    if doc.get("kind") != "card":
-        return jsonify({"status": "error", "error": "Somente documentos kind=card podem ser excluidos"}), 400
+    if doc.get("kind") not in ("card", "reading_excerpt"):
+        return jsonify(
+            {
+                "status": "error",
+                "error": "Somente documentos kind=card ou kind=reading_excerpt podem ser excluidos",
+            }
+        ), 400
 
     doc_ref.delete()
-    return jsonify({"status": "ok", "message": "Card excluido", "id": id}), 200
+    return jsonify({"status": "ok", "message": "Item excluido", "id": id}), 200
 
 
 @app.route("/api/cards/review", methods=["GET"])
